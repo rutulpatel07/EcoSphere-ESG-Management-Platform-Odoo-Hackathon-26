@@ -142,9 +142,9 @@ export const environmentalMock = {
 
 export const socialMock = {
   categories: [
-    { id: 1, name: "Community Outreach", type: "CSR" },
-    { id: 2, name: "Environmental Cleanup", type: "CSR" },
-    { id: 3, name: "Education & Mentoring", type: "CSR" },
+    { id: 1, name: "Community Outreach", type: "CSR", is_active: true },
+    { id: 2, name: "Environmental Cleanup", type: "CSR", is_active: true },
+    { id: 3, name: "Education & Mentoring", type: "CSR", is_active: true },
   ],
   activities: [
     {
@@ -247,6 +247,14 @@ export const governanceMock = {
       status: "IN_PROGRESS",
       owner: "Marcus Bell",
       due_date: "2026-08-10",
+    },
+    {
+      id: 90,
+      title: "Overdue supplier audit sign-off",
+      severity: "MEDIUM",
+      status: "OPEN",
+      owner: "Diego Marin",
+      due_date: "2026-06-15",
     },
   ],
   ledger: [
@@ -363,6 +371,23 @@ export const reportsMock = {
     },
   ],
 };
+
+export const departmentsMock = [
+  { id: 1, name: "Company", code: "ROOT", parent_id: null, manager_id: 1 },
+  { id: 2, name: "Operations", code: "OPS", parent_id: 1, manager_id: 3 },
+  { id: 3, name: "Manufacturing", code: "MFG", parent_id: 1, manager_id: null },
+  { id: 4, name: "R&D", code: "RND", parent_id: 1, manager_id: null },
+  { id: 5, name: "Logistics", code: "LOG", parent_id: 2, manager_id: 7 },
+];
+
+// Categories are shared between CSR activities (social) and challenges (gamification),
+// discriminated by `type` per docs/CONTRACT.md.
+export const categoriesMock = [
+  ...socialMock.categories,
+  { id: 4, name: "Commute & Transport", type: "CHALLENGE", is_active: true },
+  { id: 5, name: "Waste Reduction", type: "CHALLENGE", is_active: true },
+  { id: 6, name: "Energy Saving", type: "CHALLENGE", is_active: false },
+];
 
 export const settingsMock = {
   gamification_enabled: true,

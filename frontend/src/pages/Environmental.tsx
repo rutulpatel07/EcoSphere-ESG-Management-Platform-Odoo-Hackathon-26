@@ -1,189 +1,221 @@
 import { useState } from "react";
-import { environmentalMock, governanceMock } from "../mock/mockData";
 import Tabs from "../components/Tabs";
 import Modal from "../components/Modal";
 import ProgressBar from "../components/ProgressBar";
+import ApiStateView from "../components/ApiStateView";
 import { pillClass } from "../statusColors";
+import { useApi } from "../hooks/useApi";
+import { EnvironmentalApi, GovernanceApi } from "../api/endpoints";
+import type { EnvGoal, LedgerEntry } from "../api/types";
 
-function goalProgressPct(g: { baseline_value: number; target_value: number; current_value: number }) {
+function goalProgressPct(g: Pick<EnvGoal, "baseline_value" | "target_value" | "current_value">) {
   const span = g.target_value - g.baseline_value;
   if (span === 0) return 100;
   return ((g.current_value - g.baseline_value) / span) * 100;
 }
 
 function GoalsTab() {
+  const goals = useApi(() => EnvironmentalApi.goals(), []);
   return (
     <div className="card">
       <h2>Reduction Goals</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Goal</th>
-            <th>Metric</th>
-            <th>Current</th>
-            <th>Target</th>
-            <th>Progress</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {environmentalMock.goals.map((g) => (
-            <tr key={g.id}>
-              <td>{g.title}</td>
-              <td>{g.metric}</td>
-              <td>
-                {g.current_value} {g.unit}
-              </td>
-              <td>
-                {g.target_value} {g.unit}
-              </td>
-              <td style={{ minWidth: 140 }}>
-                <ProgressBar
-                  pct={goalProgressPct(g)}
-                  colorVar={g.status === "AT_RISK" ? "var(--pillar-gamification)" : "var(--pillar-e)"}
-                />
-              </td>
-              <td>
-                <span className={pillClass(g.status)}>{g.status}</span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <ApiStateView state={goals}>
+        {(data) => (
+          <table>
+            <thead>
+              <tr>
+                <th>Goal</th>
+                <th>Metric</th>
+                <th>Current</th>
+                <th>Target</th>
+                <th>Progress</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((g) => (
+                <tr key={g.id}>
+                  <td>{g.title}</td>
+                  <td>{g.metric}</td>
+                  <td>
+                    {g.current_value} {g.unit}
+                  </td>
+                  <td>
+                    {g.target_value} {g.unit}
+                  </td>
+                  <td style={{ minWidth: 140 }}>
+                    <ProgressBar
+                      pct={goalProgressPct(g)}
+                      colorVar={g.status === "AT_RISK" ? "var(--pillar-gamification)" : "var(--pillar-e)"}
+                    />
+                  </td>
+                  <td>
+                    <span className={pillClass(g.status)}>{g.status}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </ApiStateView>
     </div>
   );
 }
 
 function FactorsTab() {
+  const factors = useApi(() => EnvironmentalApi.emissionFactors(), []);
   return (
     <div className="card">
       <h2>Emission Factors</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Activity</th>
-            <th>Value</th>
-            <th>Unit</th>
-            <th>Source</th>
-            <th>Version</th>
-            <th>Valid From</th>
-          </tr>
-        </thead>
-        <tbody>
-          {environmentalMock.emissionFactors.map((f) => (
-            <tr key={f.id}>
-              <td>{f.activity_type}</td>
-              <td>{f.factor_value}</td>
-              <td>{f.unit}</td>
-              <td>{f.source}</td>
-              <td>
-                <span className="pill">v{f.version}</span>
-              </td>
-              <td>{f.valid_from}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <ApiStateView state={factors}>
+        {(data) => (
+          <table>
+            <thead>
+              <tr>
+                <th>Activity</th>
+                <th>Value</th>
+                <th>Unit</th>
+                <th>Source</th>
+                <th>Version</th>
+                <th>Valid From</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((f) => (
+                <tr key={f.id}>
+                  <td>{f.activity_type}</td>
+                  <td>{f.factor_value}</td>
+                  <td>{f.unit}</td>
+                  <td>{f.source}</td>
+                  <td>
+                    <span className="pill">v{f.version}</span>
+                  </td>
+                  <td>{f.valid_from}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </ApiStateView>
     </div>
   );
 }
 
 function ProductsTab() {
+  const products = useApi(() => EnvironmentalApi.products(), []);
   return (
     <div className="card">
       <h2>Product ESG Profiles</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>SKU</th>
-            <th>Product</th>
-            <th>Embodied Carbon</th>
-            <th>Recyclable</th>
-            <th>Water Usage</th>
-            <th>Ethical Score</th>
-            <th>Certifications</th>
-          </tr>
-        </thead>
-        <tbody>
-          {environmentalMock.products.map((p) => (
-            <tr key={p.id}>
-              <td>{p.sku}</td>
-              <td>{p.name}</td>
-              <td>{p.embodied_carbon_kg} kg</td>
-              <td>{p.recyclable_pct}%</td>
-              <td>{p.water_usage_l} L</td>
-              <td>{p.ethical_score}/100</td>
-              <td>
-                {p.certifications.map((c) => (
-                  <span className="pill pill--neutral" key={c} style={{ marginRight: 6 }}>
-                    {c}
-                  </span>
-                ))}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <ApiStateView state={products}>
+        {(data) => (
+          <table>
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Product</th>
+                <th>Embodied Carbon</th>
+                <th>Recyclable</th>
+                <th>Water Usage</th>
+                <th>Ethical Score</th>
+                <th>Certifications</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((p) => (
+                <tr key={p.id}>
+                  <td>{p.sku}</td>
+                  <td>{p.name}</td>
+                  <td>{p.embodied_carbon_kg} kg</td>
+                  <td>{p.recyclable_pct}%</td>
+                  <td>{p.water_usage_l} L</td>
+                  <td>{p.ethical_score}/100</td>
+                  <td>
+                    {p.certifications.map((c) => (
+                      <span className="pill pill--neutral" key={c} style={{ marginRight: 6 }}>
+                        {c}
+                      </span>
+                    ))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </ApiStateView>
     </div>
   );
 }
 
 function TransactionsTab() {
-  const [ledgerEntry, setLedgerEntry] = useState<(typeof governanceMock.ledger)[number] | null>(null);
+  const transactions = useApi(() => EnvironmentalApi.carbonTransactions(), []);
+  const factors = useApi(() => EnvironmentalApi.emissionFactors(), []);
+  const ledger = useApi(() => GovernanceApi.ledger(), []);
+  const [ledgerEntry, setLedgerEntry] = useState<LedgerEntry | null>(null);
+
+  function activityLabel(emissionFactorId: number) {
+    if (factors.status !== "success") return `factor #${emissionFactorId}`;
+    return factors.data.find((f) => f.id === emissionFactorId)?.activity_type ?? `factor #${emissionFactorId}`;
+  }
 
   function openLedger(transactionId: number) {
-    const entry = governanceMock.ledger.find(
-      (l) => l.ref_table === "carbon_transactions" && l.ref_id === transactionId
-    );
+    if (ledger.status !== "success") return;
+    const entry = ledger.data.find((l) => l.ref_table === "carbon_transactions" && l.ref_id === transactionId);
     if (entry) setLedgerEntry(entry);
   }
 
   return (
     <div className="card">
       <h2>Recent Carbon Transactions</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Activity</th>
-            <th>Qty</th>
-            <th>Factor</th>
-            <th>tCO2e (kg)</th>
-            <th>Scope</th>
-            <th>Tier</th>
-            <th>Ledger</th>
-          </tr>
-        </thead>
-        <tbody>
-          {environmentalMock.carbonTransactions.map((t) => {
-            const hasLedgerEntry = governanceMock.ledger.some(
-              (l) => l.ref_table === "carbon_transactions" && l.ref_id === t.id
-            );
-            return (
-              <tr key={t.id}>
-                <td>{t.activity_type}</td>
-                <td>{t.quantity}</td>
-                <td>{t.factor_value_used}</td>
-                <td>
-                  {t.co2e_kg} <span className="uncertainty-badge">± {t.uncertainty_pct}%</span>
-                </td>
-                <td>{t.scope}</td>
-                <td>
-                  <span className={pillClass(t.data_tier)}>{t.data_tier}</span>
-                </td>
-                <td>
-                  {hasLedgerEntry ? (
-                    <button type="button" className="chip-btn" onClick={() => openLedger(t.id)}>
-                      🔗 verified
-                    </button>
-                  ) : (
-                    <span className="uncertainty-badge">unrecorded</span>
-                  )}
-                </td>
+      <ApiStateView state={transactions}>
+        {(data) => (
+          <table>
+            <thead>
+              <tr>
+                <th>Activity</th>
+                <th>Qty</th>
+                <th>Factor</th>
+                <th>tCO2e (kg)</th>
+                <th>Scope</th>
+                <th>Tier</th>
+                <th>Ledger</th>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            </thead>
+            <tbody>
+              {data.map((t) => {
+                const hasLedgerEntry =
+                  ledger.status === "success" &&
+                  ledger.data.some((l) => l.ref_table === "carbon_transactions" && l.ref_id === t.id);
+                return (
+                  <tr key={t.id}>
+                    <td>{activityLabel(t.emission_factor_id)}</td>
+                    <td>{t.quantity}</td>
+                    <td>{t.factor_value_used}</td>
+                    <td>
+                      {t.co2e_kg} <span className="uncertainty-badge">± {t.uncertainty_pct}%</span>
+                    </td>
+                    <td>{t.scope}</td>
+                    <td>
+                      <span className={pillClass(t.data_tier)}>{t.data_tier}</span>
+                    </td>
+                    <td>
+                      {ledger.status === "loading" && <span className="uncertainty-badge">checking…</span>}
+                      {ledger.status === "error" && <span className="uncertainty-badge">ledger unavailable</span>}
+                      {hasLedgerEntry && (
+                        <button type="button" className="chip-btn" onClick={() => openLedger(t.id)}>
+                          🔗 verified
+                        </button>
+                      )}
+                      {ledger.status === "success" && !hasLedgerEntry && (
+                        <span className="uncertainty-badge">unrecorded</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </ApiStateView>
 
       {ledgerEntry && (
         <Modal title="ESG Ledger Entry" onClose={() => setLedgerEntry(null)}>
