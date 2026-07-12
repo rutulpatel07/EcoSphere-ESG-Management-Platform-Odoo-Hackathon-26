@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.services_features.auth_dep import get_current_user_id
 from app.services_features.evidence import EVIDENCE_REQUIRED
+from app.services_features.notifications_service import TYPE_APPROVAL, create_notification
 from app.services_features.points import award_points
 
 router = APIRouter(prefix="/social", tags=["csr"])
@@ -216,6 +217,7 @@ def patch_participation(
     final_proof_url = updates.get("proof_url", participation["proof_url"])
     requesting_verify = updates.get("status") == "VERIFIED"
     already_verified = participation["status"] == "VERIFIED"
+    decision = updates.get("status") if updates.get("status") in ("VERIFIED", "REJECTED") else None
 
     if requesting_verify and EVIDENCE_REQUIRED and not final_proof_url:
         raise HTTPException(
@@ -223,7 +225,7 @@ def patch_participation(
             "Evidence required: proof_url must be set before this participation can be verified",
         )
 
-    if updates.get("status") in ("VERIFIED", "REJECTED"):
+    if decision:
         updates["verified_by"] = current_user_id
         updates["verified_at"] = datetime.now(timezone.utc)
 
@@ -239,16 +241,25 @@ def patch_participation(
         {**updates, "id": participation_id},
     ).mappings().first()
 
-    if requesting_verify and not already_verified:
+    if decision:
         activity = _activity_or_404(db, participation["csr_activity_id"])
-        award_points(
+        create_notification(
             db,
             user_id=participation["user_id"],
-            points=activity["points_reward"],
-            reason=f"CSR: {activity['title']}",
-            ref_table="employee_participation",
-            ref_id=participation_id,
+            title=f"CSR participation {decision.lower()}",
+            body=f'Your participation in "{activity["title"]}" was {decision.lower()}.',
+            type_=TYPE_APPROVAL,
+            link="/social",
         )
+        if requesting_verify and not already_verified:
+            award_points(
+                db,
+                user_id=participation["user_id"],
+                points=activity["points_reward"],
+                reason=f"CSR: {activity['title']}",
+                ref_table="employee_participation",
+                ref_id=participation_id,
+            )
 
     db.commit()
     return dict(row)

@@ -18,6 +18,7 @@ from app.db import get_db
 from app.services_features.auth_dep import get_current_user_id
 from app.services_features.evidence import EVIDENCE_REQUIRED
 from app.services_features.lifecycle import is_legal_transition
+from app.services_features.notifications_service import TYPE_APPROVAL, create_notification
 from app.services_features.points import award_points
 
 router = APIRouter(prefix="/gamification", tags=["challenges"])
@@ -235,6 +236,14 @@ def patch_challenge_participation(
             reason=f"Challenge: {challenge['title']}",
             ref_table="challenge_participation",
             ref_id=participation_id,
+        )
+        create_notification(
+            db,
+            user_id=participation["user_id"],
+            title="Challenge completed",
+            body=f'Your completion of "{challenge["title"]}" was approved.',
+            type_=TYPE_APPROVAL,
+            link="/gamification",
         )
 
     db.commit()
