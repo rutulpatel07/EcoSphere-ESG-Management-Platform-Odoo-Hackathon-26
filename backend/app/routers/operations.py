@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
 from app.db import get_db
-from app.models import Department, OperationalRecord, User
+from app.models import Department, EmissionFactor, OperationalRecord, User
 from app.models.enums import OpType
 from app.schemas.operations import (
     OperationalRecordCreate,
@@ -41,6 +41,26 @@ def create_operational_record(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Department {payload.department_id} does not exist",
+        )
+
+    # "Unknown unit": checked against units already registered for this
+    # activity_type (DB-driven), not a hardcoded allowlist -- a brand-new
+    # activity_type with no emission factors yet accepts any unit (there's
+    # nothing to compare against), but a typo against an activity_type that
+    # already has factors ("liter" vs "litre") is caught here instead of
+    # silently producing a record with no matching carbon transaction.
+    known_units = db.scalars(
+        select(EmissionFactor.unit)
+        .where(EmissionFactor.activity_type == payload.activity_type)
+        .distinct()
+    ).all()
+    if known_units and payload.unit not in known_units:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Unknown unit '{payload.unit}' for activity_type "
+                f"'{payload.activity_type}'. Registered units: {', '.join(sorted(known_units))}."
+            ),
         )
 
     data = OperationInput(

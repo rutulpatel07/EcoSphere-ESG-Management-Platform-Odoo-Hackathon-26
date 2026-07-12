@@ -5,10 +5,14 @@ mounted under ``/api``. Individual routers currently expose a single
 ``GET /ping`` stub; business logic is filled in per owner zone.
 """
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.core.errors import register_error_handlers
+from app.core.scheduler import start_scheduler, stop_scheduler
 from app.routers import (
     auth,
     carbon,
@@ -45,11 +49,19 @@ ALL_ROUTERS = (
 )
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    start_scheduler()
+    yield
+    stop_scheduler()
+
+
 def create_app() -> FastAPI:
     """Build and configure the FastAPI application."""
     app = FastAPI(
         title=settings.APP_NAME,
         version="0.1.0",
+        lifespan=lifespan,
     )
 
     app.add_middleware(
@@ -59,6 +71,8 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    register_error_handlers(app)
 
     @app.get("/health", tags=["meta"])
     def health() -> dict:
