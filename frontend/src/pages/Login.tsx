@@ -25,14 +25,14 @@ export default function Login() {
     return next;
   }
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const next = validate();
     setErrors(next);
     if (Object.keys(next).length > 0) return;
 
     setSubmitting(true);
-    const result = login(email.trim(), password);
+    const result = await login(email.trim(), password);
     setSubmitting(false);
     if ("error" in result) {
       setErrors({ form: result.error });
@@ -88,7 +88,7 @@ export default function Login() {
         <p className="auth-switch">
           Don't have an account? <Link to="/signup">Create one</Link>
         </p>
-        <p className="auth-hint">Demo: admin@ecosphere.io / admin123</p>
+        <p className="auth-hint">Sign in with credentials seeded by the backend (see docs/CONTRACT.md).</p>
       </div>
     </div>
   );

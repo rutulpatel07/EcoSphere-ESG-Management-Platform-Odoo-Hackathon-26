@@ -1,5 +1,12 @@
-// Local-only session helper. Mocked against mockData.ts — no API calls yet.
+// Session helper. Login calls the real POST /auth/login per docs/CONTRACT.md.
+//
+// Signup stays mock-only: CONTRACT.md defines no public self-registration route
+// (POST /users exists but is an authenticated admin-management endpoint, not
+// usable by an anonymous visitor creating their own account). See the report
+// delivered alongside this wiring for details.
+import { AuthApi } from "./api/endpoints";
 import { authMock } from "./mock/mockData";
+import { describeApiError } from "./hooks/useApi";
 
 export interface SessionUser {
   id: number;
@@ -27,17 +34,18 @@ export function isAuthenticated(): boolean {
   return Boolean(localStorage.getItem(TOKEN_KEY));
 }
 
-export function login(email: string, password: string): { user: SessionUser } | { error: string } {
-  const match = authMock.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-  if (!match || match.password !== password) {
-    return { error: "Invalid credentials" };
+export async function login(email: string, password: string): Promise<{ user: SessionUser } | { error: string } > {
+  try {
+    const res = await AuthApi.login(email, password);
+    localStorage.setItem(TOKEN_KEY, res.access_token);
+    localStorage.setItem(USER_KEY, JSON.stringify(res.user));
+    return { user: res.user };
+  } catch (err) {
+    return { error: describeApiError(err) };
   }
-  const { password: _password, ...user } = match;
-  localStorage.setItem(TOKEN_KEY, `mock.${user.id}.${Date.now()}`);
-  localStorage.setItem(USER_KEY, JSON.stringify(user));
-  return { user };
 }
 
+// No contract endpoint for self-service signup — kept local/mock, not wired to the API.
 export function signup(input: {
   full_name: string;
   email: string;
