@@ -2,9 +2,16 @@
 // Shapes mirror docs/CONTRACT.md response payloads.
 
 export const dashboardMock = {
-  esgScore: { total: 78.4, e: 82.1, s: 74.6, g: 76.0, weights: { E: 40, S: 30, G: 30 } },
+  esgScore: {
+    total: 78.4,
+    e: 82.1,
+    s: 74.6,
+    g: 76.0,
+    weights: { E: 40, S: 30, G: 30 },
+    footprintUncertaintyPct: 4.8,
+  },
   kpis: [
-    { label: "Total Emissions (tCO2e)", value: "1,284", delta: "-6.2%", trend: "down" },
+    { label: "Total Emissions (tCO2e)", value: "1,284", delta: "-6.2%", trend: "down", uncertaintyPct: 4.8 },
     { label: "CSR Participation", value: "63%", delta: "+4.1%", trend: "up" },
     { label: "Open Compliance Issues", value: "7", delta: "-2", trend: "down" },
     { label: "Active Challenges", value: "5", delta: "+1", trend: "up" },
@@ -22,6 +29,13 @@ export const dashboardMock = {
     { department: "Manufacturing", period: "2026-Q2", e: 64, s: 70, g: 66, total: 66.4 },
     { department: "Logistics", period: "2026-Q2", e: 59, s: 72, g: 70, total: 66.1 },
     { department: "R&D", period: "2026-Q2", e: 88, s: 80, g: 82, total: 84.0 },
+  ],
+  recentActivity: [
+    { id: 1, type: "CARBON", text: "Logistics logged 1,800 L diesel fleet usage (+4.8t CO2e)", when: "2h ago" },
+    { id: 2, type: "SOCIAL", text: "Amara Osei verified for Riverside Cleanup Drive (+150 pts)", when: "5h ago" },
+    { id: 3, type: "GOVERNANCE", text: "Anti-Bribery & Corruption Policy v3 acknowledged by 12 employees", when: "1d ago" },
+    { id: 4, type: "GAMIFICATION", text: "Bike-to-Work Fortnight passed 3,120 / 5,000 km goal", when: "1d ago" },
+    { id: 5, type: "COMPLIANCE", text: "New compliance issue assigned: Missing Scope 3 supplier data", when: "2d ago" },
   ],
 };
 
@@ -342,3 +356,27 @@ export const notificationsMock = [
     created_at: "2026-07-09T15:20:00Z",
   },
 ];
+
+// Demo credentials for local-only auth (no backend call — see docs/CONTRACT.md /auth/login shape).
+export const authMock = {
+  users: [
+    {
+      id: 1,
+      email: "admin@ecosphere.io",
+      password: "admin123",
+      full_name: "Ada Admin",
+      role: "ADMIN",
+      department_id: 1,
+      points_balance: 0,
+    },
+    {
+      id: 5,
+      email: "amara@ecosphere.io",
+      password: "amara123",
+      full_name: "Amara Osei",
+      role: "EMPLOYEE",
+      department_id: 4,
+      points_balance: 2480,
+    },
+  ],
+};

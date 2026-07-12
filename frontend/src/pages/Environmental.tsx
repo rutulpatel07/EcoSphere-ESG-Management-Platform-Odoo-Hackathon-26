@@ -61,7 +61,9 @@ export default function Environmental() {
                 <td>{t.activity_type}</td>
                 <td>{t.quantity}</td>
                 <td>{t.factor_value_used}</td>
-                <td>{t.co2e_kg}</td>
+                <td>
+                  {t.co2e_kg} <span className="uncertainty-badge">± {t.uncertainty_pct}%</span>
+                </td>
                 <td>{t.scope}</td>
                 <td>
                   <span className="pill">{t.data_tier}</span>
