@@ -498,3 +498,42 @@ CREATE TABLE settings (
 
 -- Seed the singleton settings row.
 INSERT INTO settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+-- ===========================================================================
+-- 26. Additional indexes (hardening pass)
+-- Purely additive -- no table/column/enum is renamed or altered. Each one
+-- targets a real composite query pattern from application code that the
+-- single-column indexes above don't cover efficiently:
+--   - compliance_issues(status, due_date): the hourly overdue-issue sweep
+--     (app/core/scheduler.py) filters exactly on this pair.
+--   - notifications(user_id, is_read): CONTRACT.md's GET /notifications
+--     is always scoped to the current user, frequently with ?unread=true.
+--   - carbon_transactions(department_id, occurred_on),
+--     users(department_id, is_active),
+--     point_transactions(user_id, created_at),
+--     employee_participation(user_id, created_at): all four are scanned by
+--     every department_scores refresh (app/services/scoring.py) -- one of
+--     the hottest read paths in the app.
+--   - emission_factors(activity_type, unit, valid_to): the active-factor
+--     match on every operational-record write (app/services/emissions.py).
+-- ===========================================================================
+CREATE INDEX IF NOT EXISTS idx_compliance_issues_status_due
+    ON compliance_issues(status, due_date);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_user_unread
+    ON notifications(user_id, is_read);
+
+CREATE INDEX IF NOT EXISTS idx_carbon_transactions_dept_occurred
+    ON carbon_transactions(department_id, occurred_on);
+
+CREATE INDEX IF NOT EXISTS idx_users_department_active
+    ON users(department_id, is_active);
+
+CREATE INDEX IF NOT EXISTS idx_point_transactions_user_created
+    ON point_transactions(user_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_employee_participation_user_created
+    ON employee_participation(user_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_emission_factors_activity_unit_validto
+    ON emission_factors(activity_type, unit, valid_to);
