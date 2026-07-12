@@ -187,6 +187,14 @@ export const socialMock = {
       hours: null,
       proof_url: null,
     },
+    {
+      id: 7003,
+      activity: "Riverside Cleanup Drive",
+      user: "Marcus Bell",
+      status: "REGISTERED",
+      hours: null,
+      proof_url: "https://files.local/proof/7003.jpg",
+    },
   ],
 };
 
@@ -243,6 +251,15 @@ export const governanceMock = {
   ],
   ledger: [
     {
+      seq: 10230,
+      entry_type: "CARBON",
+      ref_table: "carbon_transactions",
+      ref_id: 501,
+      row_hash: "77aa03bb19ce...0d2",
+      prev_hash: "5e1f9c22d048...771",
+      created_at: "2026-06-27T09:00:00Z",
+    },
+    {
       seq: 10231,
       entry_type: "CARBON",
       ref_table: "carbon_transactions",
@@ -279,6 +296,7 @@ export const gamificationMock = {
       goal_target: 5000,
       progress: 3120,
       points_reward: 300,
+      difficulty: "Medium",
       end_date: "2026-07-26",
     },
     {
@@ -289,8 +307,25 @@ export const gamificationMock = {
       goal_target: 500,
       progress: 500,
       points_reward: 200,
+      difficulty: "Easy",
       end_date: "2026-07-05",
     },
+    {
+      id: 603,
+      title: "Plastic-Free Office Sprint",
+      lifecycle: "Draft",
+      goal_metric: "single_use_plastic_avoided_kg",
+      goal_target: 200,
+      progress: 0,
+      points_reward: 450,
+      difficulty: "Hard",
+      end_date: "2026-09-01",
+    },
+  ],
+  participation: [
+    { id: 9001, challenge: "Bike-to-Work Fortnight", user: "Amara Osei", progress: 3120, goal_target: 5000, status: "IN_PROGRESS" },
+    { id: 9002, challenge: "Zero-Waste Lunch Week", user: "Diego Marin", progress: 500, goal_target: 500, status: "COMPLETED" },
+    { id: 9003, challenge: "Bike-to-Work Fortnight", user: "Lin Zhao", progress: 4500, goal_target: 5000, status: "IN_PROGRESS" },
   ],
   badges: [
     { id: 21, name: "Carbon Cutter", tier: "Gold", points_value: 500, unlocked: true },
