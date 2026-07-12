@@ -5,6 +5,10 @@ A user's balance is always derived as ``SUM(point_transactions.points)``.
 point_transactions is the single source of truth for balances.
 """
 
+# NOTE: app.services_features.badges imports get_balance from this module,
+# so evaluate_badges is imported lazily inside award_points to avoid a
+# circular import at module load time.
+
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -26,7 +30,7 @@ def award_points(
     ref_table: str,
     ref_id: int,
 ) -> None:
-    """Insert a point_transactions delta row. Does not commit."""
+    """Insert a point_transactions delta row and re-evaluate badges. Does not commit."""
     db.execute(
         text(
             """
@@ -42,6 +46,10 @@ def award_points(
             "ref_id": ref_id,
         },
     )
+
+    from app.services_features.badges import evaluate_badges
+
+    evaluate_badges(db, user_id)
 
 
 def list_transactions(db: Session, user_id: int, limit: int = 50) -> list[dict]:
