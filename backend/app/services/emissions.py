@@ -73,10 +73,19 @@ def match_active_factor(
 
 
 def record_operation(
-    db: Session, data: OperationInput, *, actor_user_id: int | None
+    db: Session,
+    data: OperationInput,
+    *,
+    actor_user_id: int | None,
+    compute_emissions: bool = True,
 ) -> tuple[OperationalRecord, CarbonTransaction | None]:
     """Stage the operational record and (if a factor matches) the carbon
-    transaction + ledger entry. Flushes but does not commit."""
+    transaction + ledger entry. Flushes but does not commit.
+
+    When ``compute_emissions`` is False (settings.auto_emission_calc off), only
+    the operational record is staged — no factor lookup, carbon transaction, or
+    ledger entry.
+    """
     record = OperationalRecord(
         op_type=data.op_type,
         department_id=data.department_id,
@@ -90,6 +99,9 @@ def record_operation(
     )
     db.add(record)
     db.flush()  # assign record.id
+
+    if not compute_emissions:
+        return record, None
 
     factor = match_active_factor(db, data.activity_type, data.unit, data.occurred_on)
     if factor is None:

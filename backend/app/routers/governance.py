@@ -20,10 +20,17 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.deps import get_current_user, require_manager
 from app.db import get_db
-from app.services_features.auth_dep import get_current_user_id
+from app.models import User
+from app.services.ledger import append_entry
 from app.services_features.lifecycle import COMPLIANCE_ISSUE_TRANSITIONS, is_legal_transition
-from app.services_features.notifications_service import TYPE_COMPLIANCE, create_notification
+from app.services_features.notifications_service import (
+    TYPE_COMPLIANCE,
+    TYPE_POLICY,
+    create_notification,
+)
+from app.services_features.settings_flags import notifications_enabled
 
 router = APIRouter(prefix="/governance", tags=["governance"])
 
@@ -148,7 +155,7 @@ def _compliance_issue_or_404(db: Session, issue_id: int) -> dict:
 @router.get("/policies")
 def list_policies(
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    _: User = Depends(get_current_user),
 ) -> list[dict]:
     rows = db.execute(
         text(f"SELECT {POLICY_COLUMNS} FROM esg_policies ORDER BY effective_date DESC, id DESC")
@@ -160,7 +167,7 @@ def list_policies(
 def create_policy(
     body: PolicyCreate,
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    _: User = Depends(require_manager),
 ) -> dict:
     row = db.execute(
         text(
@@ -172,6 +179,26 @@ def create_policy(
         ),
         body.model_dump(),
     ).mappings().first()
+
+    # Notify every active user that a new policy exists (POLICY). Set-based
+    # insert so it stays one round-trip regardless of headcount.
+    if notifications_enabled(db):
+        db.execute(
+            text(
+                """
+                INSERT INTO notifications (user_id, title, body, type, link)
+                SELECT u.id, :title, :body, 'POLICY', :link
+                FROM users u
+                WHERE u.is_active = TRUE
+                """
+            ),
+            {
+                "title": "New ESG policy published",
+                "body": f'Please review and acknowledge "{row["title"]}".',
+                "link": f"/governance/policies/{row['id']}",
+            },
+        )
+
     db.commit()
     return dict(row)
 
@@ -181,7 +208,7 @@ def patch_policy(
     policy_id: int,
     body: PolicyPatch,
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    _: User = Depends(require_manager),
 ) -> dict:
     policy = _policy_or_404(db, policy_id)
     updates = body.model_dump(exclude_unset=True)
@@ -206,7 +233,7 @@ def acknowledge_policy(
     policy_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    current_user_id: int = Depends(get_current_user_id),
+    current_user: User = Depends(get_current_user),
 ) -> dict:
     _policy_or_404(db, policy_id)
     try:
@@ -220,10 +247,19 @@ def acknowledge_policy(
             ),
             {
                 "policy_id": policy_id,
-                "user_id": current_user_id,
+                "user_id": current_user.id,
                 "ip_address": request.client.host if request.client else None,
             },
         ).mappings().first()
+        # Ledger the acknowledgement (POLICY) in the same transaction.
+        append_entry(
+            db,
+            entry_type="POLICY",
+            ref_table="policy_acknowledgements",
+            ref_id=row["id"],
+            actor_user_id=current_user.id,
+            payload={"policy_id": policy_id, "user_id": current_user.id},
+        )
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -235,7 +271,7 @@ def acknowledge_policy(
 def list_acknowledgements(
     policy_id: int,
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    _: User = Depends(get_current_user),
 ) -> list[dict]:
     _policy_or_404(db, policy_id)
     rows = db.execute(
@@ -252,7 +288,7 @@ def list_acknowledgements(
 @router.get("/audits")
 def list_audits(
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    _: User = Depends(get_current_user),
 ) -> list[dict]:
     rows = db.execute(
         text(f"SELECT {AUDIT_COLUMNS} FROM audits ORDER BY scheduled_date DESC, id DESC")
@@ -264,7 +300,7 @@ def list_audits(
 def create_audit(
     body: AuditCreate,
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    _: User = Depends(require_manager),
 ) -> dict:
     row = db.execute(
         text(
@@ -289,7 +325,7 @@ def patch_audit(
     audit_id: int,
     body: AuditPatch,
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    _: User = Depends(require_manager),
 ) -> dict:
     audit = _audit_or_404(db, audit_id)
     updates = body.model_dump(exclude_unset=True)
@@ -312,7 +348,7 @@ def patch_audit(
 @router.get("/compliance-issues")
 def list_compliance_issues(
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    _: User = Depends(get_current_user),
 ) -> list[dict]:
     rows = db.execute(
         text(f"SELECT {CI_COLUMNS} FROM compliance_issues ORDER BY due_date, id")
@@ -324,7 +360,7 @@ def list_compliance_issues(
 def create_compliance_issue(
     body: ComplianceIssueCreate,
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    current_user: User = Depends(require_manager),
 ) -> dict:
     row = db.execute(
         text(
@@ -348,6 +384,20 @@ def create_compliance_issue(
         link="/governance",
     )
 
+    # Ledger the issue creation (AUDIT) in the same transaction.
+    append_entry(
+        db,
+        entry_type="AUDIT",
+        ref_table="compliance_issues",
+        ref_id=row["id"],
+        actor_user_id=current_user.id,
+        payload={
+            "issue_id": row["id"],
+            "status": row["status"],
+            "severity": row["severity"],
+        },
+    )
+
     db.commit()
     return dict(row)
 
@@ -357,22 +407,25 @@ def patch_compliance_issue(
     issue_id: int,
     body: ComplianceIssuePatch,
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    current_user: User = Depends(require_manager),
 ) -> dict:
     issue = _compliance_issue_or_404(db, issue_id)
     updates = body.model_dump(exclude_unset=True)
 
+    status_changed = False
     if "status" in updates:
         current, target = issue["status"], updates["status"]
-        if not is_legal_transition(COMPLIANCE_ISSUE_TRANSITIONS, current, target):
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                f"Illegal status transition: {current} -> {target}",
-            )
-        if target == "RESOLVED":
-            updates["resolved_at"] = datetime.now(timezone.utc)
-        elif current == "RESOLVED":
-            updates["resolved_at"] = None
+        if current != target:
+            if not is_legal_transition(COMPLIANCE_ISSUE_TRANSITIONS, current, target):
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"Illegal status transition: {current} -> {target}",
+                )
+            status_changed = True
+            if target == "RESOLVED":
+                updates["resolved_at"] = datetime.now(timezone.utc)
+            elif current == "RESOLVED":
+                updates["resolved_at"] = None
 
     if not updates:
         return issue
@@ -382,5 +435,21 @@ def patch_compliance_issue(
         text(f"UPDATE compliance_issues SET {set_clause} WHERE id = :id RETURNING {CI_COLUMNS}"),
         {**updates, "id": issue_id},
     ).mappings().first()
+
+    # Ledger status changes (AUDIT) in the same transaction.
+    if status_changed:
+        append_entry(
+            db,
+            entry_type="AUDIT",
+            ref_table="compliance_issues",
+            ref_id=issue_id,
+            actor_user_id=current_user.id,
+            payload={
+                "issue_id": issue_id,
+                "old_status": issue["status"],
+                "new_status": row["status"],
+            },
+        )
+
     db.commit()
     return dict(row)

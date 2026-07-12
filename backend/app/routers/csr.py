@@ -16,9 +16,11 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.deps import get_current_user, require_manager
 from app.db import get_db
-from app.services_features.auth_dep import get_current_user_id
-from app.services_features.evidence import EVIDENCE_REQUIRED
+from app.models import User
+from app.services import events, scoring
+from app.services_features.evidence import evidence_required
 from app.services_features.notifications_service import TYPE_APPROVAL, create_notification
 from app.services_features.points import award_points
 
@@ -104,7 +106,7 @@ def _participation_or_404(db: Session, participation_id: int) -> dict:
 @router.get("/activities")
 def list_activities(
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    _: User = Depends(get_current_user),
 ) -> list[dict]:
     rows = db.execute(
         text(f"SELECT {ACTIVITY_COLUMNS} FROM csr_activities ORDER BY start_date DESC, id DESC")
@@ -116,7 +118,7 @@ def list_activities(
 def create_activity(
     body: ActivityCreate,
     db: Session = Depends(get_db),
-    current_user_id: int = Depends(get_current_user_id),
+    current_user: User = Depends(require_manager),
 ) -> dict:
     row = db.execute(
         text(
@@ -130,7 +132,7 @@ def create_activity(
             RETURNING {ACTIVITY_COLUMNS}
             """
         ),
-        {**body.model_dump(), "created_by": current_user_id},
+        {**body.model_dump(), "created_by": current_user.id},
     ).mappings().first()
     db.commit()
     return dict(row)
@@ -141,7 +143,7 @@ def patch_activity(
     activity_id: int,
     body: ActivityPatch,
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    _: User = Depends(require_manager),
 ) -> dict:
     activity = _activity_or_404(db, activity_id)
     updates = body.model_dump(exclude_unset=True)
@@ -165,7 +167,7 @@ def patch_activity(
 def list_participants(
     activity_id: int,
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    _: User = Depends(get_current_user),
 ) -> list[dict]:
     _activity_or_404(db, activity_id)
     rows = db.execute(
@@ -183,7 +185,7 @@ def join_activity(
     activity_id: int,
     body: JoinRequest,
     db: Session = Depends(get_db),
-    current_user_id: int = Depends(get_current_user_id),
+    current_user: User = Depends(get_current_user),
 ) -> dict:
     _activity_or_404(db, activity_id)
     try:
@@ -195,7 +197,7 @@ def join_activity(
                 RETURNING {PARTICIPATION_COLUMNS}
                 """
             ),
-            {"activity_id": activity_id, "user_id": current_user_id, "proof_url": body.proof_url},
+            {"activity_id": activity_id, "user_id": current_user.id, "proof_url": body.proof_url},
         ).mappings().first()
         db.commit()
     except IntegrityError:
@@ -209,7 +211,7 @@ def patch_participation(
     participation_id: int,
     body: ParticipationPatch,
     db: Session = Depends(get_db),
-    current_user_id: int = Depends(get_current_user_id),
+    current_user: User = Depends(require_manager),
 ) -> dict:
     participation = _participation_or_404(db, participation_id)
     updates = body.model_dump(exclude_unset=True)
@@ -219,14 +221,21 @@ def patch_participation(
     already_verified = participation["status"] == "VERIFIED"
     decision = updates.get("status") if updates.get("status") in ("VERIFIED", "REJECTED") else None
 
-    if requesting_verify and EVIDENCE_REQUIRED and not final_proof_url:
+    # No self-approval: a manager cannot verify/reject their own participation.
+    if decision and current_user.id == participation["user_id"]:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "You cannot verify or reject your own participation",
+        )
+
+    if requesting_verify and evidence_required(db) and not final_proof_url:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             "Evidence required: proof_url must be set before this participation can be verified",
         )
 
     if decision:
-        updates["verified_by"] = current_user_id
+        updates["verified_by"] = current_user.id
         updates["verified_at"] = datetime.now(timezone.utc)
 
     if not updates:
@@ -241,6 +250,7 @@ def patch_participation(
         {**updates, "id": participation_id},
     ).mappings().first()
 
+    score_row = None
     if decision:
         activity = _activity_or_404(db, participation["csr_activity_id"])
         create_notification(
@@ -260,6 +270,25 @@ def patch_participation(
                 ref_table="employee_participation",
                 ref_id=participation_id,
             )
+            # Points/participation move the employee's department S score; refresh
+            # it in the same transaction so the cache never lags the award.
+            dept_id = db.execute(
+                text("SELECT department_id FROM users WHERE id = :id"),
+                {"id": participation["user_id"]},
+            ).scalar()
+            if dept_id is not None:
+                score_row = scoring.refresh_department_score(db, dept_id, publish=False)
 
     db.commit()
+    if score_row is not None:
+        events.publish_score_updated(
+            {
+                "department_id": score_row.department_id,
+                "period": score_row.period,
+                "e": float(score_row.e_score),
+                "s": float(score_row.s_score),
+                "g": float(score_row.g_score),
+                "total": float(score_row.total_score),
+            }
+        )
     return dict(row)

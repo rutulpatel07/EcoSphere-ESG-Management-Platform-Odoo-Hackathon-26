@@ -34,6 +34,9 @@ class SettingsUpdate(BaseModel):
     csr_module_enabled: bool | None = None
     notifications_enabled: bool | None = None
     public_leaderboard: bool | None = None
+    evidence_required: bool | None = None
+    auto_award_badges: bool | None = None
+    auto_emission_calc: bool | None = None
     esg_weights: ESGWeights | None = None
 
 
@@ -45,5 +48,8 @@ class SettingsOut(BaseModel):
     csr_module_enabled: bool
     notifications_enabled: bool
     public_leaderboard: bool
+    evidence_required: bool
+    auto_award_badges: bool
+    auto_emission_calc: bool
     esg_weights: dict[str, float]
     updated_at: datetime

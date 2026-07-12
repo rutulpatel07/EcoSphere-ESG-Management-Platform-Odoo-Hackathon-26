@@ -44,9 +44,30 @@ def canonical_json(payload: dict[str, Any]) -> str:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
-def compute_row_hash(prev_hash: str | None, payload: dict[str, Any]) -> str:
-    """SHA-256 hex digest over ``prev_hash + canonical_json(payload)``."""
-    material = (prev_hash or "") + canonical_json(payload)
+def compute_row_hash(
+    prev_hash: str | None,
+    payload: dict[str, Any],
+    *,
+    entry_type: str,
+    ref_table: str | None,
+    ref_id: int | None,
+    actor_user_id: int | None,
+) -> str:
+    """SHA-256 hex digest over the previous hash plus this row's canonical envelope.
+
+    The hashed material folds in the row's provenance metadata (``entry_type``,
+    ``ref_table``, ``ref_id``, ``actor_user_id``) alongside the ``payload`` so
+    tampering with *any* of those columns — not just the JSON body — breaks the
+    chain at verification time.
+    """
+    envelope = {
+        "entry_type": entry_type,
+        "ref_table": ref_table,
+        "ref_id": ref_id,
+        "actor_user_id": actor_user_id,
+        "payload": payload,
+    }
+    material = (prev_hash or "") + canonical_json(envelope)
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
@@ -56,6 +77,10 @@ class _LedgerRowLike(Protocol):
     seq: int
     prev_hash: str | None
     row_hash: str
+    entry_type: str
+    ref_table: str | None
+    ref_id: int | None
+    actor_user_id: int | None
     payload: dict[str, Any]
 
 
@@ -82,7 +107,15 @@ def verify_chain(rows: Iterable[_LedgerRowLike]) -> VerifyResult:
         stored_prev = row.prev_hash or None
         if stored_prev != prev_hash:
             return VerifyResult(False, count, row.seq)
-        if compute_row_hash(prev_hash, row.payload) != row.row_hash:
+        recomputed = compute_row_hash(
+            prev_hash,
+            row.payload,
+            entry_type=row.entry_type,
+            ref_table=row.ref_table,
+            ref_id=row.ref_id,
+            actor_user_id=row.actor_user_id,
+        )
+        if recomputed != row.row_hash:
             return VerifyResult(False, count, row.seq)
         prev_hash = row.row_hash
     return VerifyResult(True, count, None)
@@ -111,7 +144,14 @@ def append_entry(
 
     last = db.scalar(select(ESGLedger).order_by(ESGLedger.seq.desc()).limit(1))
     prev_hash = last.row_hash if last is not None else None
-    row_hash = compute_row_hash(prev_hash, payload)
+    row_hash = compute_row_hash(
+        prev_hash,
+        payload,
+        entry_type=entry_type,
+        ref_table=ref_table,
+        ref_id=ref_id,
+        actor_user_id=actor_user_id,
+    )
 
     entry = ESGLedger(
         entry_type=entry_type,

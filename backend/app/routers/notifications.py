@@ -16,8 +16,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.deps import get_current_user
 from app.db import get_db
-from app.services_features.auth_dep import get_current_user_id
+from app.models import User
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -28,10 +29,10 @@ NOTIFICATION_COLUMNS = "id, user_id, title, body, type, link, is_read, created_a
 def list_notifications(
     unread: bool | None = Query(default=None),
     db: Session = Depends(get_db),
-    current_user_id: int = Depends(get_current_user_id),
+    current_user: User = Depends(get_current_user),
 ) -> list[dict]:
     query = f"SELECT {NOTIFICATION_COLUMNS} FROM notifications WHERE user_id = :user_id"
-    params: dict = {"user_id": current_user_id}
+    params: dict = {"user_id": current_user.id}
     if unread:
         query += " AND is_read = FALSE"
     query += " ORDER BY created_at DESC"
@@ -43,14 +44,14 @@ def list_notifications(
 def mark_read(
     notification_id: int,
     db: Session = Depends(get_db),
-    current_user_id: int = Depends(get_current_user_id),
+    current_user: User = Depends(get_current_user),
 ) -> dict:
     row = db.execute(
         text(
             "UPDATE notifications SET is_read = TRUE "
             "WHERE id = :id AND user_id = :user_id RETURNING id, is_read"
         ),
-        {"id": notification_id, "user_id": current_user_id},
+        {"id": notification_id, "user_id": current_user.id},
     ).mappings().first()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Notification not found")

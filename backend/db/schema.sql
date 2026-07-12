@@ -173,7 +173,7 @@ CREATE TABLE users (
     password_hash VARCHAR(72)  NOT NULL,          -- bcrypt hash
     role          user_role    NOT NULL DEFAULT 'EMPLOYEE',
     department_id INTEGER      REFERENCES departments(id) ON DELETE SET NULL,
-    points_balance INTEGER     NOT NULL DEFAULT 0,
+    points_balance INTEGER     NOT NULL DEFAULT 0,  -- DEPRECATED: balances are derived from point_transactions (SUM); do not read/write this column.
     avatar_url    VARCHAR(400),
     is_active     BOOLEAN      NOT NULL DEFAULT TRUE,
     created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
@@ -244,7 +244,7 @@ CREATE TABLE esg_ledger (
     ref_id       INTEGER,
     payload      JSONB        NOT NULL DEFAULT '{}'::jsonb,
     prev_hash    CHAR(64),                         -- row_hash of previous entry
-    row_hash     CHAR(64)     NOT NULL,            -- sha256 over (seq,prev_hash,payload,...)
+    row_hash     CHAR(64)     NOT NULL,            -- sha256(prev_hash + canonical_json({entry_type, ref_table, ref_id, actor_user_id, payload}))
     actor_user_id INTEGER     REFERENCES users(id) ON DELETE SET NULL,
     created_at   TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
@@ -255,6 +255,22 @@ CREATE INDEX idx_esg_ledger_created_at  ON esg_ledger(created_at);
 
 -- Enforce append-only: revoke UPDATE/DELETE from PUBLIC.
 REVOKE UPDATE, DELETE ON esg_ledger FROM PUBLIC;
+
+-- Belt-and-suspenders: a row-level trigger blocks UPDATE/DELETE even for the
+-- table owner (who the REVOKE above does not constrain). Any attempt raises,
+-- keeping the hash chain truly append-only. See db/migrations/002_ledger_trigger.sql
+-- to apply this to an already-running database without recreating the table.
+CREATE OR REPLACE FUNCTION esg_ledger_append_only()
+    RETURNS TRIGGER AS $$
+BEGIN
+    RAISE EXCEPTION 'esg_ledger is append-only';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_esg_ledger_append_only ON esg_ledger;
+CREATE TRIGGER trg_esg_ledger_append_only
+    BEFORE UPDATE OR DELETE ON esg_ledger
+    FOR EACH ROW EXECUTE FUNCTION esg_ledger_append_only();
 
 -- ===========================================================================
 -- 13. csr_activities
@@ -491,6 +507,9 @@ CREATE TABLE settings (
     csr_module_enabled    BOOLEAN  NOT NULL DEFAULT TRUE,
     notifications_enabled BOOLEAN  NOT NULL DEFAULT TRUE,
     public_leaderboard    BOOLEAN  NOT NULL DEFAULT TRUE,
+    evidence_required     BOOLEAN  NOT NULL DEFAULT TRUE,   -- proof_url required to verify/complete participation
+    auto_award_badges     BOOLEAN  NOT NULL DEFAULT TRUE,   -- auto-unlock badges after point deltas
+    auto_emission_calc    BOOLEAN  NOT NULL DEFAULT TRUE,   -- auto-create carbon transactions on operational records
     esg_weights           JSONB    NOT NULL DEFAULT '{"E":40,"S":30,"G":30}'::jsonb,
     updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT chk_settings_singleton CHECK (id = 1)

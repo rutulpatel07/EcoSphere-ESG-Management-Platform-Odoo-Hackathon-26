@@ -9,7 +9,7 @@ on the SSE bus.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
@@ -74,9 +74,17 @@ def create_operational_record(
         amount=payload.amount,
     )
 
+    # settings.auto_emission_calc (row id=1) gates automatic carbon accounting.
+    auto_calc = db.execute(
+        text("SELECT auto_emission_calc FROM settings WHERE id = 1")
+    ).scalar()
+    compute_emissions = True if auto_calc is None else bool(auto_calc)
+
     score_row = None
     try:
-        record, carbon = emissions.record_operation(db, data, actor_user_id=current_user.id)
+        record, carbon = emissions.record_operation(
+            db, data, actor_user_id=current_user.id, compute_emissions=compute_emissions
+        )
         # A new carbon transaction can move the department's E score (and, via
         # points/participation elsewhere, S/G too) -- refresh in the SAME
         # transaction so the cache never observably lags the data it's derived

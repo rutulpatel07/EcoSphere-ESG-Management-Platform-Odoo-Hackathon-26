@@ -6,18 +6,33 @@ Challenges and challenge_participation live in routers/challenges.py (same
 
 import json
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.deps import get_current_user, require_manager
 from app.db import get_db
-from app.services_features.auth_dep import get_current_user_id
+from app.models import User
+from app.models.enums import UserRole
 from app.services_features.leaderboard import department_leaderboard, individual_leaderboard
 from app.services_features.points import get_balance, list_transactions
 from app.services_features.rewards import redeem as redeem_reward
 
 router = APIRouter(prefix="/gamification", tags=["gamification"])
+
+
+def _require_self_or_manager(current_user: User, user_id: int) -> None:
+    """Allow access to another user's points/badges only for that user, or a
+    manager/admin. Employees can only read their own."""
+    if current_user.id != user_id and current_user.role not in (
+        UserRole.ADMIN,
+        UserRole.MANAGER,
+    ):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "You may only view your own points and badges",
+        )
 
 BADGE_COLUMNS = "id, name, description, icon, tier, unlock_rule, points_value, is_active"
 REWARD_COLUMNS = "id, name, description, cost_points, stock, image_url, is_active"
@@ -55,8 +70,9 @@ class RewardCreate(BaseModel):
 def get_points(
     user_id: int,
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    current_user: User = Depends(get_current_user),
 ) -> dict:
+    _require_self_or_manager(current_user, user_id)
     return {
         "balance": get_balance(db, user_id),
         "transactions": list_transactions(db, user_id),
@@ -70,7 +86,7 @@ def get_points(
 @router.get("/badges")
 def list_badges(
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    _: User = Depends(get_current_user),
 ) -> list[dict]:
     rows = db.execute(text(f"SELECT {BADGE_COLUMNS} FROM badges ORDER BY id")).mappings().all()
     return [dict(row) for row in rows]
@@ -80,7 +96,7 @@ def list_badges(
 def create_badge(
     body: BadgeCreate,
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    _: User = Depends(require_manager),
 ) -> dict:
     row = db.execute(
         text(
@@ -100,8 +116,9 @@ def create_badge(
 def list_user_badges(
     user_id: int,
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    current_user: User = Depends(get_current_user),
 ) -> list[dict]:
+    _require_self_or_manager(current_user, user_id)
     rows = db.execute(
         text(
             """
@@ -125,7 +142,7 @@ def list_user_badges(
 @router.get("/rewards")
 def list_rewards(
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    _: User = Depends(get_current_user),
 ) -> list[dict]:
     rows = db.execute(text(f"SELECT {REWARD_COLUMNS} FROM rewards ORDER BY id")).mappings().all()
     return [dict(row) for row in rows]
@@ -135,7 +152,7 @@ def list_rewards(
 def create_reward(
     body: RewardCreate,
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    _: User = Depends(require_manager),
 ) -> dict:
     row = db.execute(
         text(
@@ -155,22 +172,22 @@ def create_reward(
 def redeem(
     reward_id: int,
     db: Session = Depends(get_db),
-    current_user_id: int = Depends(get_current_user_id),
+    current_user: User = Depends(get_current_user),
 ) -> dict:
-    return redeem_reward(db, user_id=current_user_id, reward_id=reward_id)
+    return redeem_reward(db, user_id=current_user.id, reward_id=reward_id)
 
 
 @router.get("/redemptions")
 def list_redemptions(
     db: Session = Depends(get_db),
-    current_user_id: int = Depends(get_current_user_id),
+    current_user: User = Depends(get_current_user),
 ) -> list[dict]:
     rows = db.execute(
         text(
             f"SELECT {REDEMPTION_COLUMNS} FROM reward_redemptions "
             "WHERE user_id = :user_id ORDER BY created_at DESC"
         ),
-        {"user_id": current_user_id},
+        {"user_id": current_user.id},
     ).mappings().all()
     return [dict(row) for row in rows]
 
@@ -183,7 +200,7 @@ def list_redemptions(
 def leaderboard(
     scope: str = Query(default="individual", pattern="^(individual|department)$"),
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    _: User = Depends(get_current_user),
 ) -> list[dict]:
     if scope == "department":
         return department_leaderboard(db)

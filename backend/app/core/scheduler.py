@@ -18,15 +18,17 @@ import logging
 from datetime import date, datetime, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.db import SessionLocal
 from app.models import ComplianceIssue, Notification
+from app.services_features.settings_flags import notifications_enabled
 
 logger = logging.getLogger(__name__)
 
 _OVERDUE_STATUSES = ("OPEN", "IN_PROGRESS")
 _JOB_ID = "flag_overdue_compliance_issues"
+_POLICY_JOB_ID = "flag_unacknowledged_policies"
 
 
 def _link_for(issue_id: int) -> str:
@@ -38,6 +40,8 @@ def flag_overdue_compliance_issues() -> int:
     and logged here so the job's effect is visible without a debugger)."""
     db = SessionLocal()
     try:
+        if not notifications_enabled(db):
+            return 0
         today = date.today()
         overdue = db.scalars(
             select(ComplianceIssue).where(
@@ -83,6 +87,57 @@ def flag_overdue_compliance_issues() -> int:
         db.close()
 
 
+def flag_unacknowledged_policies() -> int:
+    """One sweep raising a POLICY reminder for every active user who has not yet
+    acknowledged a mandatory policy. Idempotent per (user, policy): a reminder is
+    only inserted when neither an acknowledgement nor a prior POLICY notification
+    (matched by the policy's link) already exists. Returns the count created."""
+    db = SessionLocal()
+    try:
+        if not notifications_enabled(db):
+            return 0
+
+        policies = db.execute(
+            text("SELECT id, title FROM esg_policies WHERE is_mandatory = TRUE")
+        ).mappings().all()
+
+        created = 0
+        for policy in policies:
+            link = f"/governance/policies/{policy['id']}"
+            result = db.execute(
+                text(
+                    """
+                    INSERT INTO notifications (user_id, title, body, type, link)
+                    SELECT u.id, :title, :body, 'POLICY', :link
+                    FROM users u
+                    WHERE u.is_active = TRUE
+                      AND NOT EXISTS (
+                          SELECT 1 FROM policy_acknowledgements pa
+                          WHERE pa.policy_id = :pid AND pa.user_id = u.id
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1 FROM notifications n
+                          WHERE n.user_id = u.id AND n.type = 'POLICY' AND n.link = :link
+                      )
+                    """
+                ),
+                {
+                    "title": "Policy acknowledgement reminder",
+                    "body": f'Please review and acknowledge "{policy["title"]}".',
+                    "link": link,
+                    "pid": policy["id"],
+                },
+            )
+            created += result.rowcount or 0
+
+        db.commit()
+        if created:
+            logger.info("flag_unacknowledged_policies: created %d reminder(s)", created)
+        return created
+    finally:
+        db.close()
+
+
 _scheduler: BackgroundScheduler | None = None
 
 
@@ -105,8 +160,18 @@ def start_scheduler() -> BackgroundScheduler:
         max_instances=1,
         coalesce=True,
     )
+    _scheduler.add_job(
+        flag_unacknowledged_policies,
+        trigger="interval",
+        hours=1,
+        id=_POLICY_JOB_ID,
+        next_run_time=datetime.now(timezone.utc),
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
     _scheduler.start()
-    logger.info("scheduler started: %s runs hourly", _JOB_ID)
+    logger.info("scheduler started: %s and %s run hourly", _JOB_ID, _POLICY_JOB_ID)
     return _scheduler
 
 

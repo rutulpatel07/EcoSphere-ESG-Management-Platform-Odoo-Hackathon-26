@@ -66,6 +66,9 @@ class Settings(Base):
     csr_module_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     notifications_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     public_leaderboard: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    evidence_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    auto_award_badges: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    auto_emission_calc: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     esg_weights: Mapped[dict] = mapped_column(
         JSONB, nullable=False, default=lambda: {"E": 40, "S": 30, "G": 30}
     )

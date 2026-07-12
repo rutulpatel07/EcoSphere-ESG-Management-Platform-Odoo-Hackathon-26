@@ -55,15 +55,16 @@ from app.models import (
 
 
 def hash_password(password: str) -> str:
-    """Hash password using bcrypt (mimics Odoo hashing)."""
-    try:
-        import bcrypt
-        salt = bcrypt.gensalt(rounds=12)
-        return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
-    except ImportError:
-        # Fallback: simple hash for testing (not secure)
-        import hashlib
-        return hashlib.sha256(password.encode()).hexdigest()
+    """Hash password using bcrypt.
+
+    bcrypt is a hard requirement (see requirements.txt); there is deliberately no
+    insecure SHA-256 fallback — a missing bcrypt must fail loudly, not silently
+    seed unverifiable password hashes.
+    """
+    import bcrypt
+
+    salt = bcrypt.gensalt(rounds=12)
+    return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
 
 
 def truncate_all_tables(db):
@@ -899,17 +900,13 @@ def seed_db():
             PointTransaction(user_id=users["corp2@bharti.in"].id, points=120, reason="Green commute bonus"),
         ]
 
-        total_points = {}
         for txn in point_txns:
             db.add(txn)
-            total_points[txn.user_id] = total_points.get(txn.user_id, 0) + txn.points
         db.flush()
 
-        # Update user points balance
-        for user_id, points in total_points.items():
-            user_obj = db.query(User).filter(User.id == user_id).first()
-            if user_obj:
-                user_obj.points_balance = points
+        # NOTE: users.points_balance is DEPRECATED and intentionally left at its
+        # default (0). Balances are derived from point_transactions via
+        # services_features/points.get_balance() — do not write it back here.
         db.commit()
         print("✓ Point transactions created")
 

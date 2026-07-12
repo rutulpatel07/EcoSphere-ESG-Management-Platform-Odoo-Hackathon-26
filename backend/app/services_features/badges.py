@@ -2,10 +2,9 @@
 
 unlock_rule shape: ``{"metric": "xp" | "challenges_completed", "op": ">=", "value": N}``
 
-``auto_award`` is not a column on ``badges`` or ``settings`` in
-backend/db/schema.sql — same class of gap as ``evidence_required`` in the
-CSR approval work. Per product decision, auto-award is hardcoded on rather
-than invented as a schema field.
+Auto-award is a runtime toggle read from ``settings.auto_award_badges`` (row
+id=1) at call time, so an admin can turn it off via PATCH /settings without a
+redeploy.
 """
 
 import json
@@ -16,8 +15,6 @@ from sqlalchemy.orm import Session
 
 from app.services_features.notifications_service import TYPE_BADGE, create_notification
 from app.services_features.points import get_balance
-
-AUTO_AWARD_BADGES = True
 
 _OPS = {
     ">=": operator.ge,
@@ -43,9 +40,14 @@ def _metric_value(db: Session, user_id: int, metric: str) -> float | None:
     return None
 
 
+def _auto_award_enabled(db: Session) -> bool:
+    value = db.execute(text("SELECT auto_award_badges FROM settings WHERE id = 1")).scalar()
+    return True if value is None else bool(value)
+
+
 def evaluate_badges(db: Session, user_id: int) -> list[dict]:
     """Award any newly-unlocked badges for user_id + notify. Does not commit."""
-    if not AUTO_AWARD_BADGES:
+    if not _auto_award_enabled(db):
         return []
 
     candidates = (
@@ -83,6 +85,16 @@ def evaluate_badges(db: Session, user_id: int) -> list[dict]:
         db.execute(
             text("INSERT INTO user_badges (user_id, badge_id) VALUES (:user_id, :badge_id)"),
             {"user_id": user_id, "badge_id": badge["id"]},
+        )
+        from app.services.ledger import append_entry
+
+        append_entry(
+            db,
+            entry_type="BADGE",
+            ref_table="user_badges",
+            ref_id=badge["id"],
+            actor_user_id=user_id,
+            payload={"user_id": user_id, "badge_id": badge["id"]},
         )
         create_notification(
             db,

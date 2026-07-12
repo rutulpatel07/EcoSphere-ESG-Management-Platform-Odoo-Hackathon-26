@@ -16,6 +16,13 @@ REDEMPTION_COLUMNS = "id, user_id, reward_id, points_spent, status, fulfilled_at
 
 
 def redeem(db: Session, *, user_id: int, reward_id: int) -> dict:
+    # Serialize concurrent redemptions by the SAME user so two requests can't
+    # both read a sufficient balance and each spend it (double-spend). The lock
+    # is transaction-scoped and released on COMMIT/ROLLBACK below.
+    bind = db.get_bind()
+    if bind is not None and bind.dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": user_id})
+
     reward = (
         db.execute(
             text(

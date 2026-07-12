@@ -1,6 +1,26 @@
-"""Application configuration read from environment variables."""
+"""Application configuration read from environment variables.
+
+``.env`` (if present) is loaded first via python-dotenv so local development
+picks up secrets/DB settings without exporting them by hand. Required secrets
+have no insecure fallback: a missing ``JWT_SECRET`` fails fast at import time.
+"""
 
 import os
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+def _require(name: str) -> str:
+    """Return a required environment variable or raise a clear startup error."""
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(
+            f"Required environment variable {name} is not set. "
+            "Copy backend/.env.example to backend/.env and fill it in."
+        )
+    return value
 
 
 class Settings:
@@ -11,11 +31,13 @@ class Settings:
 
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
-        "postgresql+psycopg2://ecosphere:ecosphere@localhost:5432/ecosphere",
+        "postgresql+psycopg2://ecosphere:ecosphere@localhost:5432/ecosphere_db",
     )
 
-    JWT_SECRET: str = os.getenv("JWT_SECRET", "change-me-in-production")
-    JWT_ALGORITHM: str = "HS256"
+    # No insecure default: a missing JWT_SECRET raises at startup rather than
+    # silently signing tokens with a well-known key.
+    JWT_SECRET: str = _require("JWT_SECRET")
+    JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
     JWT_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES", "720"))
 
     # Comma-separated list of allowed CORS origins (Vite dev server by default).

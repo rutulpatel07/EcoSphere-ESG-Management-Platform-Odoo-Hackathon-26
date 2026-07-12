@@ -15,9 +15,10 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core.deps import get_current_user
 from app.db import get_db
+from app.models import User
 from app.services_features import reports_history
-from app.services_features.auth_dep import get_current_user_id
 from app.services_features.exporters import to_csv, to_pdf, to_xlsx
 from app.services_features.reports_data import REPORT_DEFINITIONS, custom_report, parse_period
 
@@ -78,7 +79,7 @@ class CustomReportRequest(BaseModel):
 # --------------------------------------------------------------------------
 
 @router.get("/available")
-def list_available(_: int = Depends(get_current_user_id)) -> list[dict]:
+def list_available(_: User = Depends(get_current_user)) -> list[dict]:
     return [
         {"id": report_id, "name": meta["name"], "formats": ["PDF", "XLSX", "CSV"]}
         for report_id, meta in REPORT_DEFINITIONS.items()
@@ -89,7 +90,7 @@ def list_available(_: int = Depends(get_current_user_id)) -> list[dict]:
 def generate(
     body: GenerateRequest,
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    _: User = Depends(get_current_user),
 ) -> Response:
     meta = REPORT_DEFINITIONS.get(body.report_id)
     if meta is None:
@@ -103,7 +104,7 @@ def generate(
 
 
 @router.get("/recent")
-def recent(_: int = Depends(get_current_user_id)) -> list[dict]:
+def recent(_: User = Depends(get_current_user)) -> list[dict]:
     return reports_history.recent()
 
 
@@ -111,7 +112,7 @@ def recent(_: int = Depends(get_current_user_id)) -> list[dict]:
 def generate_custom(
     body: CustomReportRequest,
     db: Session = Depends(get_db),
-    _: int = Depends(get_current_user_id),
+    _: User = Depends(get_current_user),
 ) -> Response:
     columns, rows = custom_report(
         db,

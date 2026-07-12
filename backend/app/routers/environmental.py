@@ -20,9 +20,17 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, require_manager
 from app.db import get_db
-from app.models import Department, DepartmentScore, EmissionFactor, EnvironmentalGoal, User
+from app.models import (
+    Department,
+    DepartmentScore,
+    EmissionFactor,
+    EnvironmentalGoal,
+    ProductESGProfile,
+    User,
+)
 from app.schemas.emission_factors import EmissionFactorCreate, EmissionFactorOut
 from app.schemas.goals import GoalCreate, GoalOut, GoalUpdate
+from app.schemas.products import ProductCreate, ProductOut
 from app.schemas.scores import DepartmentScoreOut, OrgScoreOut
 from app.services import events, scoring
 
@@ -291,3 +299,37 @@ def refresh_scores(
         db.refresh(row)
     _emit_score_events(rows)
     return rows
+
+
+# --------------------------------------------------------------------------
+# Product ESG profiles
+# --------------------------------------------------------------------------
+
+
+@router.get("/products", response_model=list[ProductOut])
+def list_products(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[ProductESGProfile]:
+    stmt = select(ProductESGProfile).order_by(ProductESGProfile.id.asc())
+    return list(db.scalars(stmt).all())
+
+
+@router.post("/products", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
+def create_product(
+    payload: ProductCreate,
+    db: Session = Depends(get_db),
+    _manager: User = Depends(require_manager),
+) -> ProductESGProfile:
+    product = ProductESGProfile(**payload.model_dump())
+    db.add(product)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Product with sku '{payload.sku}' already exists",
+        ) from exc
+    db.refresh(product)
+    return product

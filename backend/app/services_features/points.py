@@ -30,7 +30,11 @@ def award_points(
     ref_table: str,
     ref_id: int,
 ) -> None:
-    """Insert a point_transactions delta row and re-evaluate badges. Does not commit."""
+    """Insert a point_transactions delta row, ledger it, and re-evaluate badges.
+
+    Does not commit — the caller owns the transaction, so the point delta, the
+    POINTS ledger entry, and any badge unlocks all land (or roll back) together.
+    """
     db.execute(
         text(
             """
@@ -45,6 +49,19 @@ def award_points(
             "ref_table": ref_table,
             "ref_id": ref_id,
         },
+    )
+
+    # Ledger the points movement (covers both earns and reward-redemption spends,
+    # which flow through here with a negative delta). Small payload: ids + delta.
+    from app.services.ledger import append_entry
+
+    append_entry(
+        db,
+        entry_type="POINTS",
+        ref_table=ref_table,
+        ref_id=ref_id,
+        actor_user_id=user_id,
+        payload={"user_id": user_id, "delta": points, "reason": reason},
     )
 
     from app.services_features.badges import evaluate_badges

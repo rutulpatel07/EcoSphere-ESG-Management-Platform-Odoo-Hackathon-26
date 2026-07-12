@@ -19,6 +19,8 @@ frontend/dist/
 # ---- Env / secrets ----
 # NOTE: frontend/.env holds only VITE_API_BASE and is safe to commit.
 .env.production
+# backend/.env holds JWT_SECRET and DB credentials — never commit it.
+backend/.env
 
 # ---- Docker ----
 *.pid

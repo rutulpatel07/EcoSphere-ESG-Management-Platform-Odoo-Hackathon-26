@@ -1,7 +1,7 @@
 services:
   db:
     image: postgres:16
-    container_name: ecosphere_db
+    container_name: ecosphere
     restart: unless-stopped
     environment:
       POSTGRES_USER: ecosphere
