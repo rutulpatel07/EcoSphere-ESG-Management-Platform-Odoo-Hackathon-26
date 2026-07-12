@@ -6,9 +6,27 @@ export type ApiState<T> =
   | { status: "success"; data: T }
   | { status: "error"; error: string };
 
+// FastAPI error bodies are always { detail: string | Array<{ msg, loc, type }> } —
+// surface that message directly (e.g. "An account with this email already exists")
+// instead of a generic "Request failed: 409" the user can't act on.
+function serverDetailMessage(data: unknown): string | null {
+  if (!data || typeof data !== "object" || !("detail" in data)) return null;
+  const detail = (data as { detail?: unknown }).detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((d) => (d && typeof d === "object" && "msg" in d ? String((d as { msg: unknown }).msg) : null))
+      .filter((m): m is string => Boolean(m));
+    if (messages.length > 0) return messages.join(" ");
+  }
+  return null;
+}
+
 export function describeApiError(err: unknown): string {
   if (err instanceof AxiosError) {
     if (err.response) {
+      const serverMessage = serverDetailMessage(err.response.data);
+      if (serverMessage) return serverMessage;
       if (err.response.status === 404) {
         return `Endpoint not implemented yet on the backend (${err.config?.method?.toUpperCase()} ${err.config?.url} → 404).`;
       }

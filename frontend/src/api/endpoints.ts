@@ -8,6 +8,7 @@ import type {
   ComplianceIssue,
   CsrActivity,
   CsrCategory,
+  CustomReportFilters,
   DashboardSummary,
   Department,
   EmissionFactor,
@@ -17,19 +18,25 @@ import type {
   LedgerVerify,
   LoginResponse,
   NotificationItem,
+  OperationalRecordCreate,
+  OperationalRecordCreated,
   Participation,
   PlatformSettings,
   Policy,
   ProductProfile,
+  RecomputeResponse,
   Redemption,
   ReportAvailable,
   RecentReport,
   Reward,
+  SignupPayload,
 } from "./types";
 
 export const AuthApi = {
   login: (email: string, password: string) =>
     apiClient.post<LoginResponse>("/auth/login", { email, password }).then((r) => r.data),
+  signup: (payload: SignupPayload) =>
+    apiClient.post<LoginResponse>("/auth/signup", payload).then((r) => r.data),
 };
 
 export const DashboardApi = {
@@ -42,6 +49,14 @@ export const EnvironmentalApi = {
   products: () => apiClient.get<ProductProfile[]>("/environmental/products").then((r) => r.data),
   carbonTransactions: () =>
     apiClient.get<CarbonTransaction[]>("/environmental/carbon-transactions").then((r) => r.data),
+  logOperation: (payload: OperationalRecordCreate) =>
+    apiClient.post<OperationalRecordCreated>("/environmental/operational-records", payload).then((r) => r.data),
+  recompute: (factorVersion: number) =>
+    apiClient
+      .post<RecomputeResponse>("/environmental/carbon-transactions/recompute", null, {
+        params: { factor_version: factorVersion },
+      })
+      .then((r) => r.data),
 };
 
 export const SocialApi = {
@@ -59,7 +74,8 @@ export const GovernanceApi = {
   policies: () => apiClient.get<Policy[]>("/governance/policies").then((r) => r.data),
   audits: () => apiClient.get<Audit[]>("/governance/audits").then((r) => r.data),
   complianceIssues: () => apiClient.get<ComplianceIssue[]>("/governance/compliance-issues").then((r) => r.data),
-  ledger: () => apiClient.get<LedgerEntry[]>("/governance/ledger").then((r) => r.data),
+  ledger: (limit?: number) =>
+    apiClient.get<LedgerEntry[]>("/governance/ledger", { params: limit ? { limit } : undefined }).then((r) => r.data),
   ledgerVerify: () => apiClient.get<LedgerVerify>("/governance/ledger/verify").then((r) => r.data),
 };
 
@@ -78,6 +94,8 @@ export const ReportsApi = {
   recent: () => apiClient.get<RecentReport[]>("/reports/recent").then((r) => r.data),
   generate: (payload: { report_id: string; format: string; period: string }) =>
     apiClient.post("/reports/generate", payload, { responseType: "blob" }).then((r) => r),
+  custom: (payload: CustomReportFilters) =>
+    apiClient.post("/reports/custom", payload, { responseType: "blob" }).then((r) => r),
 };
 
 export const SettingsApi = {

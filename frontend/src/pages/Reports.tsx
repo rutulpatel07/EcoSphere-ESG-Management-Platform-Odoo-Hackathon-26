@@ -1,13 +1,32 @@
 import { useState } from "react";
-import { departmentsMock } from "../mock/mockData";
 import ApiStateView from "../components/ApiStateView";
 import { useApi } from "../hooks/useApi";
-import { ReportsApi } from "../api/endpoints";
+import { DepartmentsApi, ReportsApi } from "../api/endpoints";
 
-const PERIODS = ["2026-Q1", "2026-Q2", "2026-Q3", "2026-Q4", "2026 Full Year"];
-const FRAMEWORKS = ["All", "GRI", "SASB", "TCFD"];
-const SCOPES = ["All", "Scope 1", "Scope 2", "Scope 3"];
-const DATA_TIERS = ["All", "MEASURED", "CALCULATED", "ESTIMATED", "DEFAULT"];
+// parse_period (backend/app/services_features/reports_data.py) accepts "YYYY",
+// "YYYY-MM", or "YYYY-Qn" — "2026" (not "2026 Full Year") is the valid full-year form.
+const PERIODS = [
+  { value: "2026-Q1", label: "2026 Q1" },
+  { value: "2026-Q2", label: "2026 Q2" },
+  { value: "2026-Q3", label: "2026 Q3" },
+  { value: "2026-Q4", label: "2026 Q4" },
+  { value: "2026", label: "2026 Full Year" },
+];
+
+const MODULES = [
+  { value: "ALL", label: "All Modules" },
+  { value: "ENVIRONMENTAL", label: "Environmental" },
+  { value: "SOCIAL", label: "Social" },
+  { value: "GOVERNANCE", label: "Governance" },
+  { value: "GAMIFICATION", label: "Gamification" },
+];
+
+const ESG_CATEGORIES = [
+  { value: "ALL", label: "All Categories" },
+  { value: "E", label: "Environmental (E)" },
+  { value: "S", label: "Social (S)" },
+  { value: "G", label: "Governance (G)" },
+];
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -28,25 +47,47 @@ function filenameFromDisposition(disposition: string | undefined, fallback: stri
 export default function Reports() {
   const available = useApi(() => ReportsApi.available(), []);
   const recent = useApi(() => ReportsApi.recent(), []);
+  const departments = useApi(() => DepartmentsApi.list(), []);
 
-  const [reportId, setReportId] = useState("");
-  const [department, setDepartment] = useState("All");
-  const [period, setPeriod] = useState(PERIODS[1]);
-  const [framework, setFramework] = useState(FRAMEWORKS[0]);
-  const [scope, setScope] = useState(SCOPES[0]);
-  const [dataTier, setDataTier] = useState(DATA_TIERS[0]);
-  const [built, setBuilt] = useState(false);
+  const [period, setPeriod] = useState(PERIODS[1].value);
   const [genState, setGenState] = useState<Record<string, "idle" | "generating" | "error">>({});
+
+  // Custom Report Builder filters — every one of these maps directly onto a field
+  // POST /reports/custom accepts (department_id, start_date, end_date, module,
+  // esg_category). No framework/scope/data-tier controls: the backend has no such
+  // filters, and a control that silently does nothing isn't worth showing.
+  const [departmentId, setDepartmentId] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [moduleFilter, setModuleFilter] = useState("ALL");
+  const [esgCategory, setEsgCategory] = useState("ALL");
 
   function generate(id: string, format: string) {
     const key = `${id}:${format}`;
     setGenState((prev) => ({ ...prev, [key]: "generating" }));
-    // department/framework/scope/dataTier filter the report scope client-side per the
-    // custom builder — CONTRACT.md's POST /reports/generate only documents
-    // { report_id, format, period }, so those extra filters aren't sent (see wiring report).
     ReportsApi.generate({ report_id: id, format, period })
       .then((res) => {
         const fallback = `${id}-${period}.${format === "XLSX" ? "xlsx" : format.toLowerCase()}`;
+        downloadBlob(res.data as Blob, filenameFromDisposition(res.headers?.["content-disposition"], fallback));
+        setGenState((prev) => ({ ...prev, [key]: "idle" }));
+        recent.refetch();
+      })
+      .catch(() => setGenState((prev) => ({ ...prev, [key]: "error" })));
+  }
+
+  function generateCustom(format: string) {
+    const key = `custom:${format}`;
+    setGenState((prev) => ({ ...prev, [key]: "generating" }));
+    ReportsApi.custom({
+      department_id: departmentId === "" ? undefined : Number(departmentId),
+      start_date: startDate || undefined,
+      end_date: endDate || undefined,
+      module: moduleFilter === "ALL" ? undefined : moduleFilter,
+      esg_category: esgCategory === "ALL" ? undefined : esgCategory,
+      format,
+    })
+      .then((res) => {
+        const fallback = `Custom_ESG_Report.${format === "XLSX" ? "xlsx" : format.toLowerCase()}`;
         downloadBlob(res.data as Blob, filenameFromDisposition(res.headers?.["content-disposition"], fallback));
         setGenState((prev) => ({ ...prev, [key]: "idle" }));
         recent.refetch();
@@ -62,6 +103,19 @@ export default function Reports() {
       </div>
 
       <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <h2 style={{ margin: 0 }}>Available Reports</h2>
+          <label className="field" style={{ margin: 0 }}>
+            <span className="field-label">Period</span>
+            <select className="field-input" value={period} onChange={(e) => setPeriod(e.target.value)}>
+              {PERIODS.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         <ApiStateView state={available}>
           {(reports) => (
             <div className="report-card-grid">
@@ -95,41 +149,20 @@ export default function Reports() {
 
       <div className="card">
         <h2>Custom Report Builder</h2>
-        <ApiStateView state={available}>
-          {(reports) => (
+        <ApiStateView state={departments}>
+          {(deptData) => (
             <>
               <div className="filter-grid">
-                <label className="field">
-                  <span className="field-label">Report Type</span>
-                  <select
-                    className="field-input"
-                    value={reportId || reports[0]?.id || ""}
-                    onChange={(e) => {
-                      setReportId(e.target.value);
-                      setBuilt(false);
-                    }}
-                  >
-                    {reports.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
                 <label className="field">
                   <span className="field-label">Department</span>
                   <select
                     className="field-input"
-                    value={department}
-                    onChange={(e) => {
-                      setDepartment(e.target.value);
-                      setBuilt(false);
-                    }}
+                    value={departmentId}
+                    onChange={(e) => setDepartmentId(e.target.value)}
                   >
-                    <option value="All">All Departments</option>
-                    {departmentsMock.map((d) => (
-                      <option key={d.id} value={d.name}>
+                    <option value="">All Departments</option>
+                    {deptData.map((d) => (
+                      <option key={d.id} value={d.id}>
                         {d.name}
                       </option>
                     ))}
@@ -137,72 +170,42 @@ export default function Reports() {
                 </label>
 
                 <label className="field">
-                  <span className="field-label">Period</span>
-                  <select
+                  <span className="field-label">Start Date</span>
+                  <input
+                    type="date"
                     className="field-input"
-                    value={period}
-                    onChange={(e) => {
-                      setPeriod(e.target.value);
-                      setBuilt(false);
-                    }}
-                  >
-                    {PERIODS.map((p) => (
-                      <option key={p} value={p}>
-                        {p}
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                  />
+                </label>
+
+                <label className="field">
+                  <span className="field-label">End Date</span>
+                  <input
+                    type="date"
+                    className="field-input"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                  />
+                </label>
+
+                <label className="field">
+                  <span className="field-label">Module</span>
+                  <select className="field-input" value={moduleFilter} onChange={(e) => setModuleFilter(e.target.value)}>
+                    {MODULES.map((m) => (
+                      <option key={m.value} value={m.value}>
+                        {m.label}
                       </option>
                     ))}
                   </select>
                 </label>
 
                 <label className="field">
-                  <span className="field-label">Framework</span>
-                  <select
-                    className="field-input"
-                    value={framework}
-                    onChange={(e) => {
-                      setFramework(e.target.value);
-                      setBuilt(false);
-                    }}
-                  >
-                    {FRAMEWORKS.map((f) => (
-                      <option key={f} value={f}>
-                        {f}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="field">
-                  <span className="field-label">Scope</span>
-                  <select
-                    className="field-input"
-                    value={scope}
-                    onChange={(e) => {
-                      setScope(e.target.value);
-                      setBuilt(false);
-                    }}
-                  >
-                    {SCOPES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="field">
-                  <span className="field-label">Data Tier</span>
-                  <select
-                    className="field-input"
-                    value={dataTier}
-                    onChange={(e) => {
-                      setDataTier(e.target.value);
-                      setBuilt(false);
-                    }}
-                  >
-                    {DATA_TIERS.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
+                  <span className="field-label">ESG Category</span>
+                  <select className="field-input" value={esgCategory} onChange={(e) => setEsgCategory(e.target.value)}>
+                    {ESG_CATEGORIES.map((c) => (
+                      <option key={c.value} value={c.value}>
+                        {c.label}
                       </option>
                     ))}
                   </select>
@@ -210,35 +213,43 @@ export default function Reports() {
               </div>
 
               <div className="report-builder-actions">
-                <button type="button" className="btn btn-primary" onClick={() => setBuilt(true)}>
-                  Run
-                </button>
                 <button
                   type="button"
                   className="btn btn-quick btn-quick--e"
-                  disabled={!built}
-                  onClick={() => generate(reportId || reports[0]?.id, "PDF")}
+                  disabled={genState["custom:PDF"] === "generating"}
+                  onClick={() => generateCustom("PDF")}
                 >
-                  PDF Export
+                  {genState["custom:PDF"] === "generating"
+                    ? "Generating…"
+                    : genState["custom:PDF"] === "error"
+                      ? "Failed — retry"
+                      : "PDF Export"}
                 </button>
                 <button
                   type="button"
                   className="btn btn-quick btn-quick--s"
-                  disabled={!built}
-                  onClick={() => generate(reportId || reports[0]?.id, "XLSX")}
+                  disabled={genState["custom:XLSX"] === "generating"}
+                  onClick={() => generateCustom("XLSX")}
                 >
-                  Excel Export
+                  {genState["custom:XLSX"] === "generating"
+                    ? "Generating…"
+                    : genState["custom:XLSX"] === "error"
+                      ? "Failed — retry"
+                      : "Excel Export"}
                 </button>
                 <button
                   type="button"
                   className="btn btn-quick btn-quick--gamification"
-                  disabled={!built}
-                  onClick={() => generate(reportId || reports[0]?.id, "CSV")}
+                  disabled={genState["custom:CSV"] === "generating"}
+                  onClick={() => generateCustom("CSV")}
                 >
-                  CSV Export
+                  {genState["custom:CSV"] === "generating"
+                    ? "Generating…"
+                    : genState["custom:CSV"] === "error"
+                      ? "Failed — retry"
+                      : "CSV Export"}
                 </button>
               </div>
-              {!built && <p className="uncertainty-badge">Run the builder to enable exports.</p>}
             </>
           )}
         </ApiStateView>

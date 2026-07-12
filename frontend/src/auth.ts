@@ -1,11 +1,6 @@
-// Session helper. Login calls the real POST /auth/login per docs/CONTRACT.md.
-//
-// Signup stays mock-only: CONTRACT.md defines no public self-registration route
-// (POST /users exists but is an authenticated admin-management endpoint, not
-// usable by an anonymous visitor creating their own account). See the report
-// delivered alongside this wiring for details.
+// Session helper. Login and signup both call the real backend
+// (POST /auth/login, POST /auth/signup).
 import { AuthApi } from "./api/endpoints";
-import { authMock } from "./mock/mockData";
 import { describeApiError } from "./hooks/useApi";
 
 export interface SessionUser {
@@ -34,6 +29,17 @@ export function isAuthenticated(): boolean {
   return Boolean(localStorage.getItem(TOKEN_KEY));
 }
 
+// Server enforces these same role checks on every guarded route (403 if violated) —
+// these helpers exist so the UI can hide actions that would otherwise 403, not as
+// a security boundary of their own.
+export function isManager(user: SessionUser | null): boolean {
+  return user?.role === "ADMIN" || user?.role === "MANAGER";
+}
+
+export function isAdmin(user: SessionUser | null): boolean {
+  return user?.role === "ADMIN";
+}
+
 export async function login(email: string, password: string): Promise<{ user: SessionUser } | { error: string } > {
   try {
     const res = await AuthApi.login(email, password);
@@ -45,27 +51,22 @@ export async function login(email: string, password: string): Promise<{ user: Se
   }
 }
 
-// No contract endpoint for self-service signup — kept local/mock, not wired to the API.
-export function signup(input: {
+// Signup always creates an EMPLOYEE — the backend accepts no role field on
+// POST /auth/signup (role is never client-controlled at account creation).
+export async function signup(input: {
   full_name: string;
   email: string;
   password: string;
-  role: string;
-}): { user: SessionUser } | { error: string } {
-  if (authMock.users.some((u) => u.email.toLowerCase() === input.email.toLowerCase())) {
-    return { error: "An account with this email already exists" };
+  department_id?: number | null;
+}): Promise<{ user: SessionUser } | { error: string }> {
+  try {
+    const res = await AuthApi.signup(input);
+    localStorage.setItem(TOKEN_KEY, res.access_token);
+    localStorage.setItem(USER_KEY, JSON.stringify(res.user));
+    return { user: res.user };
+  } catch (err) {
+    return { error: describeApiError(err) };
   }
-  const user: SessionUser = {
-    id: Math.max(...authMock.users.map((u) => u.id)) + 1,
-    email: input.email,
-    full_name: input.full_name,
-    role: input.role,
-    department_id: 1,
-    points_balance: 0,
-  };
-  localStorage.setItem(TOKEN_KEY, `mock.${user.id}.${Date.now()}`);
-  localStorage.setItem(USER_KEY, JSON.stringify(user));
-  return { user };
 }
 
 export function logout(): void {

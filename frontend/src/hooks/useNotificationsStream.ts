@@ -4,34 +4,36 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000/api";
 
 export type StreamStatus = "connecting" | "open" | "unavailable";
 
-// Contract only defines GET /notifications/stream (SSE) — there is no /events route.
-// Native EventSource cannot send an Authorization header, so the token is passed as a
-// query param; the backend does not currently document support for that either.
-export function useNotificationsStream(onEvent: (payload: unknown) => void) {
+// GET /environmental/events (app/routers/carbon.py) is the live SSE stream —
+// deliberately unauthenticated (native EventSource cannot send an Authorization
+// header), fanning out two named events: "carbon.created" (a carbon transaction
+// was just recorded) and "score.updated" (a department's E/S/G/total moved).
+// Either one means the dashboard summary is stale — call onLiveEvent to refetch it.
+export function useNotificationsStream(onLiveEvent: () => void) {
   const [status, setStatus] = useState<StreamStatus>("connecting");
   const failureCount = useRef(0);
 
   useEffect(() => {
-    const token = localStorage.getItem("ecosphere_token");
-    const url = `${API_BASE}/notifications/stream${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+    const url = `${API_BASE}/environmental/events`;
     const source = new EventSource(url);
 
-    source.addEventListener("notification", (e) => {
+    function handleLiveEvent() {
       failureCount.current = 0;
       setStatus("open");
-      try {
-        onEvent(JSON.parse((e as MessageEvent).data));
-      } catch {
-        onEvent((e as MessageEvent).data);
-      }
-    });
+      onLiveEvent();
+    }
+
+    source.addEventListener("carbon.created", handleLiveEvent);
+    source.addEventListener("score.updated", handleLiveEvent);
+    // "ping" is a keepalive with no payload — just confirms the connection is alive.
+    source.addEventListener("ping", () => setStatus("open"));
 
     source.onopen = () => setStatus("open");
 
     source.onerror = () => {
       failureCount.current += 1;
       // EventSource retries indefinitely on its own; after a few failures assume the
-      // endpoint isn't implemented rather than flashing "connecting" forever.
+      // backend isn't reachable rather than flashing "connecting" forever.
       if (failureCount.current >= 2) setStatus("unavailable");
     };
 

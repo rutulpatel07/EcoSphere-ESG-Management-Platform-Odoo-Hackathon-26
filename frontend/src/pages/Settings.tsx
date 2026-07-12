@@ -3,6 +3,7 @@ import ApiStateView from "../components/ApiStateView";
 import { pillClass } from "../statusColors";
 import { useApi } from "../hooks/useApi";
 import { DepartmentsApi, NotificationsApi, SettingsApi, SocialApi } from "../api/endpoints";
+import { getSessionUser, isAdmin } from "../auth";
 import type { Department, PlatformSettings } from "../api/types";
 
 function deptName(departments: Department[], id: number | null) {
@@ -10,10 +11,18 @@ function deptName(departments: Department[], id: number | null) {
   return departments.find((d) => d.id === id)?.name ?? `#${id}`;
 }
 
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+function Toggle({
+  checked,
+  onChange,
+  disabled,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
   return (
-    <label className="toggle-switch">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+    <label className={"toggle-switch" + (disabled ? " toggle-switch--disabled" : "")}>
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
       <span className="toggle-switch-track" />
     </label>
   );
@@ -97,6 +106,9 @@ function EsgConfigCard() {
   const settings = useApi(() => SettingsApi.get(), []);
   const [draft, setDraft] = useState<PlatformSettings | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  // PATCH /settings requires ADMIN server-side — read-only for everyone else so
+  // the UI never shows a Save button that would 403.
+  const canEdit = isAdmin(getSessionUser());
 
   useEffect(() => {
     if (settings.status === "success") setDraft(settings.data);
@@ -141,45 +153,100 @@ function EsgConfigCard() {
   return (
     <div className="card">
       <h2>ESG Configuration</h2>
+      {!canEdit && (
+        <p className="uncertainty-badge">Only admins can change platform configuration. Showing current values.</p>
+      )}
 
       <div className="settings-toggle-row">
         <span>Gamification enabled</span>
-        <Toggle checked={draft.gamification_enabled} onChange={(v) => setToggle("gamification_enabled", v)} />
+        <Toggle
+          checked={draft.gamification_enabled}
+          onChange={(v) => setToggle("gamification_enabled", v)}
+          disabled={!canEdit}
+        />
       </div>
       <div className="settings-toggle-row">
         <span>CSR module enabled</span>
-        <Toggle checked={draft.csr_module_enabled} onChange={(v) => setToggle("csr_module_enabled", v)} />
+        <Toggle
+          checked={draft.csr_module_enabled}
+          onChange={(v) => setToggle("csr_module_enabled", v)}
+          disabled={!canEdit}
+        />
       </div>
       <div className="settings-toggle-row">
         <span>Notifications enabled</span>
-        <Toggle checked={draft.notifications_enabled} onChange={(v) => setToggle("notifications_enabled", v)} />
+        <Toggle
+          checked={draft.notifications_enabled}
+          onChange={(v) => setToggle("notifications_enabled", v)}
+          disabled={!canEdit}
+        />
       </div>
       <div className="settings-toggle-row">
         <span>Public leaderboard</span>
-        <Toggle checked={draft.public_leaderboard} onChange={(v) => setToggle("public_leaderboard", v)} />
+        <Toggle
+          checked={draft.public_leaderboard}
+          onChange={(v) => setToggle("public_leaderboard", v)}
+          disabled={!canEdit}
+        />
       </div>
 
       <h2 style={{ marginTop: 24 }}>ESG Weights</h2>
       <div className="weight-input-grid">
         <div className="weight-input-field">
           <span className="field-label">Environmental %</span>
-          <input type="number" min={0} max={100} value={draft.esg_weights.E} onChange={(e) => setWeight("E", Number(e.target.value))} />
+          <input
+            type="number"
+            min={0}
+            max={100}
+            disabled={!canEdit}
+            value={draft.esg_weights.E}
+            onChange={(e) => setWeight("E", Number(e.target.value))}
+          />
         </div>
         <div className="weight-input-field">
           <span className="field-label">Social %</span>
-          <input type="number" min={0} max={100} value={draft.esg_weights.S} onChange={(e) => setWeight("S", Number(e.target.value))} />
+          <input
+            type="number"
+            min={0}
+            max={100}
+            disabled={!canEdit}
+            value={draft.esg_weights.S}
+            onChange={(e) => setWeight("S", Number(e.target.value))}
+          />
         </div>
         <div className="weight-input-field">
           <span className="field-label">Governance %</span>
-          <input type="number" min={0} max={100} value={draft.esg_weights.G} onChange={(e) => setWeight("G", Number(e.target.value))} />
+          <input
+            type="number"
+            min={0}
+            max={100}
+            disabled={!canEdit}
+            value={draft.esg_weights.G}
+            onChange={(e) => setWeight("G", Number(e.target.value))}
+          />
         </div>
       </div>
-      <p className={"weight-sum-note " + (weightsValid ? "weight-sum-note--ok" : "weight-sum-note--bad")}>
-        {weightsValid ? "✓ Weights sum to 100%." : `Weights must sum to 100% (currently ${weightSum}%).`}
-      </p>
-      <button type="button" className="btn btn-primary" disabled={!weightsValid || saveState === "saving"} onClick={save}>
-        {saveState === "saving" ? "Saving…" : saveState === "saved" ? "✓ Saved" : saveState === "error" ? "Failed — retry" : "Save Configuration"}
-      </button>
+      {canEdit && (
+        <>
+          <p className={"weight-sum-note " + (weightsValid ? "weight-sum-note--ok" : "weight-sum-note--bad")}>
+            {weightsValid ? "✓ Weights sum to 100%." : `Weights must sum to 100% (currently ${weightSum}%).`}
+          </p>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={!weightsValid || saveState === "saving"}
+            onClick={save}
+          >
+            {saveState === "saving"
+              ? "Saving…"
+              : saveState === "saved"
+                ? "✓ Saved"
+                : saveState === "error"
+                  ? "Failed — retry"
+                  : "Save Configuration"}
+          </button>
+        </>
+      )}
     </div>
   );
 }

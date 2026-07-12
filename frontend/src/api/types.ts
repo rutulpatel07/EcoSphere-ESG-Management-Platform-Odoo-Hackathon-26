@@ -15,6 +15,13 @@ export interface LoginResponse {
   user: AuthUser;
 }
 
+export interface SignupPayload {
+  email: string;
+  full_name: string;
+  password: string;
+  department_id?: number | null;
+}
+
 export interface DashboardSummary {
   esgScore: { total: number; e: number; s: number; g: number; weights: { E: number; S: number; G: number } };
   kpis: { label: string; value: string; delta: string; trend: string }[];
@@ -61,6 +68,54 @@ export interface CarbonTransaction {
   uncertainty_pct: number;
   department_id: number;
   occurred_on: string;
+}
+
+export type OpType = "PURCHASE" | "MANUFACTURING" | "EXPENSE" | "FLEET";
+
+export interface OperationalRecordCreate {
+  op_type: OpType;
+  activity_type: string;
+  quantity: number;
+  unit: string;
+  occurred_on: string;
+  department_id?: number | null;
+  reference?: string | null;
+  amount?: number | null;
+}
+
+export interface OperationalRecordCreated {
+  id: number;
+  op_type: OpType;
+  activity_type: string;
+  quantity: number;
+  unit: string;
+  occurred_on: string;
+  carbon_transaction_id: number | null;
+}
+
+export interface RecomputeTxnDelta {
+  transaction_id: number;
+  activity_type: string | null;
+  quantity: number;
+  factor_version_used: number | null;
+  factor_value_used: number;
+  new_factor_version: number;
+  new_factor_value: number | null;
+  old_co2e_kg: number;
+  new_co2e_kg: number;
+  delta_kg: number;
+  change_type: "methodology" | "none" | "unavailable";
+}
+
+export interface RecomputeResponse {
+  factor_version: number;
+  transactions: RecomputeTxnDelta[];
+  total_old_co2e_kg: number;
+  total_new_co2e_kg: number;
+  total_delta_kg: number;
+  methodology_change_kg: number;
+  real_change_kg: number;
+  note: string;
 }
 
 export interface ProductProfile {
@@ -140,6 +195,7 @@ export interface LedgerEntry {
   entry_type: string;
   ref_table: string;
   ref_id: number;
+  payload: Record<string, unknown>;
   prev_hash: string;
   row_hash: string;
   actor_user_id: number;
@@ -214,6 +270,17 @@ export interface RecentReport {
   format: string;
   generated_at: string;
   size_kb: number;
+}
+
+export interface CustomReportFilters {
+  department_id?: number;
+  start_date?: string;
+  end_date?: string;
+  module?: string;
+  employee_id?: number;
+  challenge_id?: number;
+  esg_category?: string;
+  format: string;
 }
 
 export interface Department {

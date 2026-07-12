@@ -1,29 +1,109 @@
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { dashboardMock } from "../mock/mockData";
 import EmissionsTrendChart from "../components/EmissionsTrendChart";
 import DeptRankingBars from "../components/DeptRankingBars";
+import ApiStateView from "../components/ApiStateView";
 import { useApi } from "../hooks/useApi";
 import { useNotificationsStream } from "../hooks/useNotificationsStream";
-import { DashboardApi } from "../api/endpoints";
+import { DashboardApi, GamificationApi, GovernanceApi } from "../api/endpoints";
+import type { Badge, LedgerEntry, Policy } from "../api/types";
 
-const ACTIVITY_ICON: Record<string, string> = {
+const LEDGER_ICON: Record<string, string> = {
   CARBON: "🌱",
-  SOCIAL: "🤝",
-  GOVERNANCE: "⚖️",
-  GAMIFICATION: "🏆",
-  COMPLIANCE: "⚠️",
+  POINTS: "⚡",
+  BADGE: "🏅",
+  POLICY: "⚖️",
+  AUDIT: "⚠️",
 };
+
+function timeAgo(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function asNumber(value: unknown): number | null {
+  if (typeof value === "number") return value;
+  if (typeof value === "string" && value.trim() !== "" && !Number.isNaN(Number(value))) return Number(value);
+  return null;
+}
+
+// Turns a raw ledger row (entry_type + payload) into a human sentence for the
+// Recent Activity feed. Payload shapes come from the services that append each
+// entry type (services/ledger.py callers) — see the field access below for what
+// each entry_type actually carries.
+function humanizeLedgerEntry(entry: LedgerEntry, badgesById: Map<number, Badge>, policiesById: Map<number, Policy>): string {
+  const p = entry.payload ?? {};
+  switch (entry.entry_type) {
+    case "CARBON": {
+      const activity = asString(p.activity_type) ?? "Activity";
+      const co2e = asNumber(p.co2e_kg);
+      return co2e !== null ? `${activity} logged — ${Math.round(co2e).toLocaleString()} kg CO₂e` : `${activity} logged`;
+    }
+    case "POINTS": {
+      const reason = asString(p.reason) ?? "Points adjustment";
+      const delta = asNumber(p.delta);
+      if (delta === null) return reason;
+      return delta >= 0 ? `${reason} (+${delta} pts)` : `${reason} (${delta} pts)`;
+    }
+    case "BADGE": {
+      const badgeId = asNumber(p.badge_id);
+      const name = badgeId !== null ? badgesById.get(badgeId)?.name : undefined;
+      return `Badge unlocked: ${name ?? (badgeId !== null ? `#${badgeId}` : "unknown")}`;
+    }
+    case "POLICY": {
+      const policyId = asNumber(p.policy_id);
+      const title = policyId !== null ? policiesById.get(policyId)?.title : undefined;
+      return `Policy acknowledged: ${title ?? (policyId !== null ? `#${policyId}` : "unknown")}`;
+    }
+    case "AUDIT": {
+      const issueId = asNumber(p.issue_id);
+      const newStatus = asString(p.new_status);
+      const oldStatus = asString(p.old_status);
+      if (newStatus) {
+        return `Compliance issue #${issueId} status: ${oldStatus ?? "?"} → ${newStatus}`;
+      }
+      const severity = asString(p.severity);
+      return `Compliance issue raised${severity ? ` (${severity})` : ""}`;
+    }
+    default:
+      return `${entry.entry_type} entry recorded`;
+  }
+}
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const summary = useApi(() => DashboardApi.summary(), []);
-  // Ticks the dashboard live: any inbound stream event triggers a refetch of the summary.
-  // CONTRACT.md only defines GET /notifications/stream for this — there is no /events route.
-  const streamStatus = useNotificationsStream(() => summary.refetch());
+  const ledgerFeed = useApi(() => GovernanceApi.ledger(8), []);
+  const badges = useApi(() => GamificationApi.badges(), []);
+  const policies = useApi(() => GovernanceApi.policies(), []);
 
-  // "Recent Activity" has no backing field in GET /dashboard/summary — kept on mock data
-  // (see wiring report: this feed has no contract endpoint to source from).
-  const { recentActivity } = dashboardMock;
+  const [flash, setFlash] = useState(false);
+  const flashTimeout = useRef<number | undefined>(undefined);
+
+  // Ticks the dashboard live: any inbound SSE event (carbon.created / score.updated)
+  // refetches the summary + recent ledger feed and flashes the live badge green.
+  const streamStatus = useNotificationsStream(() => {
+    summary.refetch();
+    ledgerFeed.refetch();
+    setFlash(true);
+    window.clearTimeout(flashTimeout.current);
+    flashTimeout.current = window.setTimeout(() => setFlash(false), 1200);
+  });
+
+  useEffect(() => () => window.clearTimeout(flashTimeout.current), []);
+
+  const badgesById = new Map((badges.status === "success" ? badges.data : []).map((b) => [b.id, b]));
+  const policiesById = new Map((policies.status === "success" ? policies.data : []).map((p) => [p.id, p]));
 
   return (
     <div>
@@ -31,7 +111,7 @@ export default function Dashboard() {
         <h1>Dashboard</h1>
         <p>
           Company-wide ESG performance at a glance.{" "}
-          <span className="uncertainty-badge">
+          <span className={"uncertainty-badge live-indicator" + (flash ? " live-indicator--flash" : "")}>
             live updates:{" "}
             {streamStatus === "open" ? "🟢 connected" : streamStatus === "connecting" ? "🟡 connecting…" : "⚪ unavailable"}
           </span>
@@ -109,15 +189,23 @@ export default function Dashboard() {
       <div className="dashboard-grid">
         <div className="card">
           <h2>Recent Activity</h2>
-          <ul className="activity-feed">
-            {recentActivity.map((item) => (
-              <li className="activity-item" key={item.id}>
-                <span className="activity-icon">{ACTIVITY_ICON[item.type] ?? "•"}</span>
-                <span className="activity-text">{item.text}</span>
-                <span className="activity-when">{item.when}</span>
-              </li>
-            ))}
-          </ul>
+          <ApiStateView state={ledgerFeed}>
+            {(entries) =>
+              entries.length === 0 ? (
+                <p className="uncertainty-badge">No ledger activity yet.</p>
+              ) : (
+                <ul className="activity-feed">
+                  {entries.map((entry) => (
+                    <li className="activity-item" key={entry.seq}>
+                      <span className="activity-icon">{LEDGER_ICON[entry.entry_type] ?? "•"}</span>
+                      <span className="activity-text">{humanizeLedgerEntry(entry, badgesById, policiesById)}</span>
+                      <span className="activity-when">{timeAgo(entry.created_at)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )
+            }
+          </ApiStateView>
         </div>
 
         <div className="card">

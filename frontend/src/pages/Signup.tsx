@@ -3,14 +3,12 @@ import { Link, useNavigate } from "react-router-dom";
 import { signup } from "../auth";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const ROLES = ["EMPLOYEE", "MANAGER", "ADMIN"];
 
 interface FieldErrors {
   full_name?: string;
   email?: string;
   password?: string;
   confirmPassword?: string;
-  role?: string;
   form?: string;
 }
 
@@ -20,7 +18,6 @@ export default function Signup() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [role, setRole] = useState("EMPLOYEE");
   const [errors, setErrors] = useState<FieldErrors>({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -33,18 +30,17 @@ export default function Signup() {
     else if (password.length < 8) next.password = "Password must be at least 8 characters.";
     if (!confirmPassword) next.confirmPassword = "Confirm your password.";
     else if (confirmPassword !== password) next.confirmPassword = "Passwords do not match.";
-    if (!role) next.role = "Select a role.";
     return next;
   }
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const next = validate();
     setErrors(next);
     if (Object.keys(next).length > 0) return;
 
     setSubmitting(true);
-    const result = signup({ full_name: fullName.trim(), email: email.trim(), password, role });
+    const result = await signup({ full_name: fullName.trim(), email: email.trim(), password });
     setSubmitting(false);
     if ("error" in result) {
       setErrors({ form: result.error });
@@ -61,7 +57,7 @@ export default function Signup() {
           <span className="sidebar-brand-name">EcoSphere</span>
         </div>
         <h1 className="auth-title">Create your account</h1>
-        <p className="auth-subtitle">Join your organization's ESG workspace.</p>
+        <p className="auth-subtitle">Join your organization's ESG workspace as an Employee.</p>
 
         <form className="auth-form" onSubmit={handleSubmit} noValidate>
           {errors.form && <div className="auth-error-banner">{errors.form}</div>}
@@ -90,22 +86,6 @@ export default function Signup() {
               autoComplete="email"
             />
             {errors.email && <span className="field-error">{errors.email}</span>}
-          </label>
-
-          <label className="field">
-            <span className="field-label">Role</span>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              className={"field-input" + (errors.role ? " field-input--invalid" : "")}
-            >
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </select>
-            {errors.role && <span className="field-error">{errors.role}</span>}
           </label>
 
           <label className="field">

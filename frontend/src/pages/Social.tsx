@@ -4,6 +4,7 @@ import ApiStateView from "../components/ApiStateView";
 import { pillClass } from "../statusColors";
 import { useApi } from "../hooks/useApi";
 import { SocialApi } from "../api/endpoints";
+import { getSessionUser, isManager } from "../auth";
 import type { CsrActivity, CsrCategory, Participation } from "../api/types";
 
 // CONTRACT.md exposes participants only per-activity (GET /social/activities/{id}/participants) —
@@ -15,6 +16,10 @@ function ParticipationSection({ activities, categories }: { activities: CsrActiv
     [activities]
   );
   const [overrides, setOverrides] = useState<Record<number, string>>({});
+  // PATCH /social/participation/{id} (verify/approve) requires MANAGER/ADMIN
+  // server-side — the queue is hidden for EMPLOYEE so the UI never shows a
+  // button that would 403.
+  const canManage = isManager(getSessionUser());
 
   function setStatus(id: number, status: "VERIFIED" | "REJECTED") {
     SocialApi.updateParticipation(id, { status }).then(
@@ -74,52 +79,54 @@ function ParticipationSection({ activities, categories }: { activities: CsrActiv
               </div>
             </div>
 
-            <div className="card">
-              <h2>Approval Queue</h2>
-              {pendingQueue.length === 0 ? (
-                <p className="uncertainty-badge">No pending submissions.</p>
-              ) : (
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Activity</th>
-                      <th>User</th>
-                      <th>Evidence</th>
-                      <th>Status</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pendingQueue.map((p) => (
-                      <tr key={p.id}>
-                        <td>{activities.find((a) => a.id === p.csr_activity_id)?.title ?? `#${p.csr_activity_id}`}</td>
-                        <td>#{p.user_id}</td>
-                        <td>
-                          {p.proof_url ? (
-                            <a href={p.proof_url} target="_blank" rel="noreferrer">
-                              📎 view proof
-                            </a>
-                          ) : (
-                            <span className="uncertainty-badge">not submitted</span>
-                          )}
-                        </td>
-                        <td>
-                          <span className={pillClass(p.status)}>{p.status}</span>
-                        </td>
-                        <td className="approval-actions">
-                          <button type="button" className="btn btn-approve" onClick={() => setStatus(p.id, "VERIFIED")}>
-                            Approve
-                          </button>
-                          <button type="button" className="btn btn-reject" onClick={() => setStatus(p.id, "REJECTED")}>
-                            Reject
-                          </button>
-                        </td>
+            {canManage && (
+              <div className="card">
+                <h2>Approval Queue</h2>
+                {pendingQueue.length === 0 ? (
+                  <p className="uncertainty-badge">No pending submissions.</p>
+                ) : (
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Activity</th>
+                        <th>User</th>
+                        <th>Evidence</th>
+                        <th>Status</th>
+                        <th>Action</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
+                    </thead>
+                    <tbody>
+                      {pendingQueue.map((p) => (
+                        <tr key={p.id}>
+                          <td>{activities.find((a) => a.id === p.csr_activity_id)?.title ?? `#${p.csr_activity_id}`}</td>
+                          <td>#{p.user_id}</td>
+                          <td>
+                            {p.proof_url ? (
+                              <a href={p.proof_url} target="_blank" rel="noreferrer">
+                                📎 view proof
+                              </a>
+                            ) : (
+                              <span className="uncertainty-badge">not submitted</span>
+                            )}
+                          </td>
+                          <td>
+                            <span className={pillClass(p.status)}>{p.status}</span>
+                          </td>
+                          <td className="approval-actions">
+                            <button type="button" className="btn btn-approve" onClick={() => setStatus(p.id, "VERIFIED")}>
+                              Approve
+                            </button>
+                            <button type="button" className="btn btn-reject" onClick={() => setStatus(p.id, "REJECTED")}>
+                              Reject
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
 
             <div className="card">
               <h2>Participation</h2>
