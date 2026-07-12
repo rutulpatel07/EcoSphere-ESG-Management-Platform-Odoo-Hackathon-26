@@ -45,7 +45,7 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)) -> TokenRespon
         department = db.get(Department, payload.department_id)
         if department is None:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Department {payload.department_id} does not exist",
             )
 
