@@ -1,0 +1,23 @@
+# ---- OS ----
+.DS_Store
+
+# ---- Python / backend ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# ---- Node / frontend ----
+node_modules/
+dist/
+frontend/dist/
+*.local
+
+# ---- Env / secrets ----
+# NOTE: frontend/.env holds only VITE_API_BASE and is safe to commit.
+.env.production
+
+# ---- Docker ----
+*.pid
